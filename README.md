@@ -36,6 +36,67 @@ browser (`BROWSER=true` just prints the URL).
 
 ![promtop web dashboard on the bundled demo](docs/web.png)
 
+## Embed in your service
+
+The web dashboard is also a Go package: register it next to `/metrics` and the service shows its
+own metrics in the browser while it runs — handy when you are writing the metrics and want to see
+them right away, without a Prometheus or OpenTelemetry stack.
+
+```sh
+go get github.com/igorrius/promtop/dash
+```
+
+```go
+mux.Handle("/metrics", promhttp.Handler())
+
+metrics := promhttp.HandlerFor(prometheus.DefaultGatherer, promhttp.HandlerOpts{})
+mux.Handle("/webmetrics/", dash.New(metrics, dash.Title("orders-svc"))) // http://localhost:8080/webmetrics/
+```
+
+The dashboard calls the metrics handler in-process every interval: no network, no port, no
+second process. Anything that serves the Prometheus text format works — client_golang,
+OpenTelemetry's Prometheus exporter, VictoriaMetrics/metrics. Give it a handler that does not
+count its own calls (`HandlerFor` without `HandlerOpts.Registry`, as above): `promhttp.Handler()`
+does, and every poll would show up in `promhttp_metric_handler_requests_total` for your real
+scrapers. The requests carry `User-Agent: promtop-dash/<version>` if your middleware wants to
+skip them. It mounts under any path; `/webmetrics` redirects to `/webmetrics/`.
+
+Who gets to see it:
+
+| `dash.Allow(…)` | Admits | Notes |
+|---|---|---|
+| `dash.Localhost` (default) | loopback clients naming a loopback host | Works on a dev machine and through `kubectl port-forward`; ingress and other pods get 403. A reverse-proxy sidecar on localhost looks local too. |
+| `dash.PrivateNetwork` | loopback and private addresses (10/8, 172.16/12, 192.168/16, fc00::/7) | For Docker, docker-compose, WSL2 and local VMs, where the host's browser arrives from a bridge address. In Kubernetes it opens the dashboard to the whole cluster network. |
+| `dash.Anyone` | everyone | |
+| your own `func(*http.Request) bool` | what it says | Compose with the above, e.g. `dash.Localhost(r) \|\| vpn.Contains(addr)`. |
+
+For a login, wrap the handler in your own auth middleware and let it in with `dash.Allow(dash.Anyone)`:
+the page and its event stream are plain same-origin requests, so cookies and basic auth reach it,
+custom headers do not. The dashboard shows the same data as `/metrics` next to it. Turning it on per environment is up to
+the service, e.g.:
+
+```go
+if os.Getenv("DEBUG_DASH") != "" {
+    mux.Handle("/webmetrics/", dash.New(metrics))
+}
+```
+
+Options: `dash.Interval` (default 2s), `dash.History` (samples kept per series, default 300),
+`dash.Filter` (initial filter regex; one in the page URL wins), `dash.Title` (page header, default
+"this process"). The dashboard lives as long as the process, like `/metrics`. `Close` stops polling
+and ends open browser streams; hook it to graceful shutdown, otherwise `Shutdown` waits for an open
+tab until its context expires:
+
+```go
+d := dash.New(metrics)
+mux.Handle("/webmetrics/", d)
+srv.RegisterOnShutdown(func() { _ = d.Close() })
+```
+
+Do not `defer d.Close()` in a function that only builds the router: the dashboard would be closed
+before the first request and answer 503. The package needs Go 1.27.3 or later. A runnable service
+with client_golang is in [`examples/embedded`](examples/embedded) (`make embedded`).
+
 ## Snapshots for chats, bots and reports
 
 `promtop render` reads the metrics once and draws them into a file — PNG or SVG to send to a
@@ -198,7 +259,7 @@ go run . 8080
 ## Development
 
 ```sh
-make test       # vet + race tests
+make test       # vet + race tests, including the examples/embedded module
 make lint       # golangci-lint (.golangci.yml)
 make snapshot   # every release archive and package in dist/, nothing published
 make screenshots # docs/*.png and docs/promtop.gif from the demo (needs Chrome and ffmpeg)

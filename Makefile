@@ -1,6 +1,6 @@
 # Local shortcuts; CI runs the same steps (.github/workflows).
 
-.PHONY: build test lint demo snapshot release-check screenshots clean
+.PHONY: build test lint demo embedded snapshot release-check screenshots clean
 
 build:
 	go build -trimpath -ldflags "-s -w" -o promtop .
@@ -8,6 +8,7 @@ build:
 test:
 	go vet ./...
 	go test -race ./...
+	cd examples/embedded && go vet ./... && go test -race ./...
 
 lint:
 	golangci-lint run ./...
@@ -15,6 +16,10 @@ lint:
 # Synthetic metrics on :8080 to try promtop against.
 demo:
 	go run ./examples/demo
+
+# A service with the dashboard built in, on :8080/webmetrics/.
+embedded:
+	cd examples/embedded && go run .
 
 # All release archives and Linux packages in dist/, without publishing.
 snapshot:

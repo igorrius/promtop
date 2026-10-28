@@ -26,6 +26,9 @@ jobs:
         run: test -z "$(gofmt -l .)"
       - name: test
         run: go test -race ./...
+      - name: example module
+        working-directory: examples/embedded
+        run: go vet ./... && go test -race ./...
       - name: snapshot
         if: runner.os == 'Linux'
         run: go run . --once --no-color --width 120 internal/expo/testdata/otel_go_runtime.prom

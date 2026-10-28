@@ -18,6 +18,9 @@ import (
 
 const maxBody = 64 << 20
 
+// accept asks for the classic text format; it is what every client library speaks.
+const accept = "text/plain;version=0.0.4;q=1,*/*;q=0.1"
+
 // Result is the outcome of one scrape.
 type Result struct {
 	Families []*expo.Family
@@ -25,6 +28,14 @@ type Result struct {
 	Duration time.Duration
 	Err      error
 }
+
+// Scraper produces metrics: a Source, or a Handler called in-process.
+type Scraper interface {
+	Scrape(ctx context.Context) Result
+	String() string // describes the source for the header line
+}
+
+var _ Scraper = (*Source)(nil)
 
 // Source is a metrics endpoint or a local file.
 type Source struct {
@@ -131,8 +142,7 @@ func (s *Source) fetch(ctx context.Context) ([]*expo.Family, error) {
 			req.Header.Add(k, v)
 		}
 	}
-	// Ask for the classic text format; it is what every client library speaks.
-	req.Header.Set("Accept", "text/plain;version=0.0.4;q=1,*/*;q=0.1")
+	req.Header.Set("Accept", accept)
 	if req.Header.Get("User-Agent") == "" {
 		req.Header.Set("User-Agent", "promtop/"+s.Version)
 	}

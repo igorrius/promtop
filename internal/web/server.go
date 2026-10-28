@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"regexp"
 	"runtime"
 	"strconv"
@@ -34,7 +35,7 @@ var assets embed.FS
 
 // Config configures the web dashboard.
 type Config struct {
-	Source   *scrape.Source
+	Source   scrape.Scraper
 	Interval time.Duration
 	History  int
 	ShowAll  bool   // initial state of the "all metrics" toggle
@@ -42,6 +43,7 @@ type Config struct {
 	Addr     string // listen address; 127.0.0.1:0 picks a free local port
 	Open     bool   // open the page in the default browser
 	Out      io.Writer
+	Denied   string // body of a 403; default "promtop only answers to localhost"
 }
 
 // Server scrapes the target and serves the dashboard.
@@ -58,11 +60,36 @@ type Server struct {
 
 	cacheSeq int
 	cache    map[string][]byte // frame JSON by options, for the current seq
+
+	start sync.Once
+	stop  sync.Once
+	done  chan struct{} // closed by Close: ends polling and event streams
+	wg    sync.WaitGroup
 }
 
 // New returns a server that has not scraped yet.
 func New(cfg Config) *Server {
-	return &Server{cfg: cfg, st: store.New(cfg.History), subs: map[chan struct{}]struct{}{}}
+	if cfg.Denied == "" {
+		cfg.Denied = "promtop only answers to localhost"
+	}
+	return &Server{
+		cfg: cfg, st: store.New(cfg.History), subs: map[chan struct{}]struct{}{},
+		cache: map[string][]byte{}, done: make(chan struct{}),
+	}
+}
+
+// Start begins scraping in the background; calls after the first do nothing.
+func (s *Server) Start() {
+	s.start.Do(func() {
+		s.wg.Go(s.scrapeLoop)
+	})
+}
+
+// Close stops scraping, ends open event streams and waits for the scrape
+// loop to return. It is safe to call more than once, and without Start.
+func (s *Server) Close() {
+	s.stop.Do(func() { close(s.done) })
+	s.wg.Wait()
 }
 
 // Run listens, opens the browser if asked and serves until ctx is done.
@@ -85,10 +112,15 @@ func (s *Server) Run(ctx context.Context) error {
 		_, _ = fmt.Fprintf(s.cfg.Out, "promtop: listening on %s — anyone who can reach it sees these metrics\n", addr)
 	}
 
-	go s.scrapeLoop(ctx)
-	srv := &http.Server{Handler: s.Handler(addr.IP.IsLoopback()), ReadHeaderTimeout: 5 * time.Second}
+	var allow func(*http.Request) bool
+	if addr.IP.IsLoopback() {
+		allow = HostOnly
+	}
+	s.Start()
+	srv := &http.Server{Handler: s.Handler(allow), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		<-ctx.Done()
+		s.Close()
 		sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 		defer cancel()
 		_ = srv.Shutdown(sctx)
@@ -116,13 +148,22 @@ func (s *Server) query() string {
 	return strings.Join(q, "&")
 }
 
-func (s *Server) scrapeLoop(ctx context.Context) {
+func (s *Server) scrapeLoop() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		select {
+		case <-s.done:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
 	t := time.NewTicker(s.cfg.Interval)
 	defer t.Stop()
 	for {
 		s.ingest(s.cfg.Source.Scrape(ctx))
 		select {
-		case <-ctx.Done():
+		case <-s.done:
 			return
 		case <-t.C:
 		}
@@ -145,27 +186,103 @@ func (s *Server) ingest(r scrape.Result) {
 	s.mu.Unlock()
 }
 
-// Handler returns the HTTP routes. With localOnly, requests must name a
-// loopback host, which stops DNS-rebinding pages from reading the metrics.
-func (s *Server) Handler(localOnly bool) http.Handler {
-	mux := http.NewServeMux()
-	static, _ := fs.Sub(assets, "assets")
-	mux.Handle("GET /", http.FileServerFS(static))
-	mux.HandleFunc("GET /api/events", s.events)
-	mux.HandleFunc("GET /api/panel", s.panel)
-	if !localOnly {
+// Handler returns the HTTP routes. Requests that allow rejects get a 403;
+// a nil allow lets everyone in.
+func (s *Server) Handler(allow func(*http.Request) bool) http.Handler {
+	mux := http.HandlerFunc(s.route)
+	if allow == nil {
 		return mux
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !loopbackHost(r.Host) {
-			http.Error(w, "promtop only answers to localhost", http.StatusForbidden)
+		if !allow(r) {
+			http.Error(w, s.cfg.Denied, http.StatusForbidden)
 			return
 		}
 		mux.ServeHTTP(w, r)
 	})
 }
 
-func loopbackHost(hostport string) bool {
+var static, _ = fs.Sub(assets, "assets")
+
+// route dispatches on the end of the path, not the whole of it, so the
+// dashboard works wherever it is mounted, with or without http.StripPrefix.
+// The page only uses relative URLs.
+func (s *Server) route(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	p := r.URL.Path
+	if p == "" {
+		// The whole mount point was stripped (chi-style mounting): the
+		// original path tells the page from the mount point without its slash.
+		p = "/" + originalBase(r)
+		if p == "/" {
+			http.NotFound(w, r)
+			return
+		}
+	} else if !strings.HasPrefix(p, "/") {
+		p = "/" + p // http.StripPrefix with the mount point's trailing slash
+	}
+	base := path.Base(p)
+	switch {
+	case strings.HasSuffix(p, "/api/events"):
+		s.events(w, r)
+	case strings.HasSuffix(p, "/api/panel"):
+		s.panel(w, r)
+	case strings.HasSuffix(p, "/api/config"):
+		s.config(w)
+	case strings.HasSuffix(p, "/"):
+		http.ServeFileFS(w, r, static, "index.html")
+	case strings.HasSuffix(p, "/api"):
+		http.NotFound(w, r)
+	case isAsset(base):
+		http.ServeFileFS(w, r, static, base)
+	case !strings.Contains(base, "."):
+		// The mount point without its slash: relative URLs need the slash.
+		// A relative Location stays right behind StripPrefix and proxies.
+		w.Header().Set("Location", "./"+url.PathEscape(base)+"/")
+		w.WriteHeader(http.StatusMovedPermanently)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+// originalBase is the last segment of the path as the client sent it, with
+// the trailing slash kept: "webmetrics" or "webmetrics/" for /webmetrics/.
+func originalBase(r *http.Request) string {
+	u, err := url.ParseRequestURI(r.RequestURI)
+	if err != nil || u.Path == "" || u.Path == "/" {
+		return ""
+	}
+	if strings.HasSuffix(u.Path, "/") {
+		return path.Base(u.Path) + "/"
+	}
+	return path.Base(u.Path)
+}
+
+func isAsset(name string) bool {
+	st, err := fs.Stat(static, name)
+	return err == nil && !st.IsDir() && name != "index.html"
+}
+
+// config tells the page its initial options when its URL has no fragment.
+func (s *Server) config(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(struct {
+		All    bool   `json:"all"`
+		Filter string `json:"filter"`
+	}{s.cfg.ShowAll, s.cfg.Filter})
+}
+
+// HostOnly admits requests that name a loopback host, which stops
+// DNS-rebinding pages from reading the metrics.
+func HostOnly(r *http.Request) bool { return LoopbackHost(r.Host) }
+
+// LoopbackHost reports whether hostport names localhost or a loopback IP.
+func LoopbackHost(hostport string) bool {
 	h, _, err := net.SplitHostPort(hostport)
 	if err != nil {
 		h = hostport
@@ -225,6 +342,13 @@ func (s *Server) frame(o options) []byte {
 	return b
 }
 
+// lockedFrame is frame under the lock.
+func (s *Server) lockedFrame(o options) []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.frame(o)
+}
+
 // events streams a frame after every scrape.
 func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
@@ -247,9 +371,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	h.Set("Content-Type", "text/event-stream")
 	h.Set("Cache-Control", "no-store")
 	send := func() bool {
-		s.mu.Lock()
-		b := s.frame(o)
-		s.mu.Unlock()
+		b := s.lockedFrame(o)
 		var buf bytes.Buffer
 		buf.WriteString("data: ")
 		buf.Write(b)
@@ -268,6 +390,8 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	for {
 		select {
 		case <-r.Context().Done():
+			return
+		case <-s.done:
 			return
 		case <-ch:
 			if !send() {
@@ -301,9 +425,11 @@ func (s *Server) panel(w http.ResponseWriter, r *http.Request) {
 			p = view.Classify(f, s.st)
 		}
 	}
-	var d Detail
+	// Encode under the lock: the detail's series share memory with the
+	// store, which the next scrape writes into.
+	var body []byte
 	if p != nil {
-		d = detail(p, s.cfg.Interval, s.lastAt, time.Now())
+		body, _ = json.Marshal(detail(p, s.cfg.Interval, s.lastAt, time.Now()))
 	}
 	s.mu.Unlock()
 	if p == nil {
@@ -312,7 +438,7 @@ func (s *Server) panel(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
-	_ = json.NewEncoder(w).Encode(d)
+	_, _ = w.Write(append(body, '\n'))
 }
 
 // openBrowser opens url with $BROWSER when set (BROWSER=true turns it off),
