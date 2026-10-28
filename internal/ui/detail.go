@@ -2,7 +2,6 @@ package ui
 
 import (
 	"math"
-	"sort"
 	"strings"
 	"time"
 
@@ -20,27 +19,11 @@ type detailState struct {
 	scroll int // table scroll offset
 }
 
-func detailSeries(p *view.Panel) []*store.Series {
-	line := ""
-	if p.Kind == view.KindHistogram || p.Kind == view.KindSummary {
-		line = rowLine(p)
-	}
-	return sortedRows(p, p.Family.Live(), line)
-}
-
 // renderDetail draws the fullscreen view of one panel in w×h cells.
 func (t *theme) renderDetail(p *view.Panel, ds *detailState, interval string, w, h int, now time.Time) []string {
 	f := p.Family
-	series := detailSeries(p)
-	kind := string(f.Type)
-	if w := p.Kind.String(); w != kind {
-		kind += " · " + w
-	}
-	kind += unitName(p)
-	if p.Group {
-		kind = "group of " + itoa(len(series)) + " " + p.Kind.String() + " metrics" + unitName(p)
-	}
-	out := []string{" " + t.bold(t.title, f.Name) + "  " + t.paint(t.dim, kind)}
+	series := p.Rows()
+	out := []string{" " + t.bold(t.title, f.Name) + "  " + t.paint(t.dim, p.Describe())}
 	if f.Help != "" {
 		help := lipgloss.Wrap(strings.ReplaceAll(f.Help, "\n", " "), w-2, " ")
 		for i, l := range strings.Split(help, "\n") {
@@ -122,22 +105,6 @@ func (t *theme) renderDetail(p *view.Panel, ds *detailState, interval string, w,
 	}
 	out = append(out, cut(foot, w), "")
 	return append(out, bottom...)
-}
-
-func unitName(p *view.Panel) string {
-	switch p.Unit {
-	case view.UnitBytes:
-		return " · bytes"
-	case view.UnitSeconds:
-		return " · seconds"
-	case view.UnitRatio:
-		return " · ratio"
-	case view.UnitPercent:
-		return " · percent"
-	case view.UnitOther:
-		return " · " + p.Sym
-	}
-	return ""
 }
 
 func (t *theme) distribution(p *view.Panel, s *store.Series, w, rows int) []string {
@@ -272,7 +239,7 @@ func (t *theme) usageTable(p *view.Panel, series []*store.Series, ds *detailStat
 		f := p.Usage(s)
 		row := t.mark(i == ds.series) + fit(view.RowLabel(p.Family, s), lw) +
 			" " + rpad(p.Format(used), vw) + " " + rpad(p.Format(lim), vw) +
-			" " + t.bold(t.usageColor(f), rpad(view.Percent(f*100), vw))
+			" " + t.bold(t.tone(view.UsageTone(f)), rpad(view.Percent(f*100), vw))
 		if bw > 4 {
 			row += " " + t.hbar(f, bw, t.usageAt(f))
 		}
@@ -292,7 +259,7 @@ func (t *theme) labelTable(p *view.Panel, series []*store.Series, ds *detailStat
 		s := series[i]
 		val := "= " + view.SI(s.Raw)
 		if p.Kind == view.KindTimestamp {
-			val = ageText(p, s, now) + "  " + tsTime(p, s).Local().Format("2006-01-02 15:04:05")
+			val = p.Age(s, now) + "  " + p.Time(s).Local().Format("2006-01-02 15:04:05")
 		}
 		lbl := view.LabelText(view.VisibleLabels(p.Family, s), true)
 		out = append(out, t.mark(i == ds.series)+fit(lbl, w-vlen(val)-5)+"  "+t.bold(t.value, val))
@@ -306,10 +273,7 @@ func (t *theme) labelTable(p *view.Panel, series []*store.Series, ds *detailStat
 // stateDetail lists every flag with its history, problems first.
 func (t *theme) stateDetail(p *view.Panel, series []*store.Series, ds *detailState, w, rows int) []string {
 	rows = max(1, rows-2)
-	ordered := append([]*store.Series(nil), series...)
-	if p.Family.Type != expo.StateSet {
-		sort.SliceStable(ordered, func(i, j int) bool { return !view.StateUp(ordered[i]) && view.StateUp(ordered[j]) })
-	}
+	ordered := series // problems first, see view.Panel.Rows
 	lw := min(40, w/3)
 	out := []string{""}
 	start, end := tableWindow(ds, len(ordered), rows)

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>promtop</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%237aa2f7'/%3E%3Cpath d='M3 12V9M6.3 12V5M9.6 12V7M13 12V3' stroke='%2316161e' stroke-width='2'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="uPlot.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <span class="pill">promtop</span>
+  <span id="target" class="target"></span>
+  <span id="source" class="source"></span>
+  <span class="spacer"></span>
+  <span id="state" class="state"></span>
+  <span id="stats" class="stats"></span>
+</header>
+<nav class="tools">
+  <label class="filter"><span>/</span>
+    <input id="filter" type="search" list="names" placeholder="filter by regex over metric names" autocomplete="off" spellcheck="false">
+  </label>
+  <datalist id="names"></datalist>
+  <label class="toggle"><input id="all" type="checkbox"> all metrics</label>
+  <button id="pause" type="button">pause</button>
+  <span class="keys"><kbd>/</kbd> filter <kbd>a</kbd> all <kbd>p</kbd> pause <kbd>esc</kbd> back</span>
+</nav>
+<main id="main"><p class="empty">waiting for the first scrape…</p></main>
+
+<div id="detail" class="detail" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="d-name">
+    <header>
+      <div>
+        <h2 id="d-name"></h2>
+        <p id="d-describe" class="dim"></p>
+        <p id="d-help" class="help"></p>
+      </div>
+      <button id="d-close" type="button" aria-label="close">×</button>
+    </header>
+    <div id="d-select" class="select"></div>
+    <div id="d-tabs" class="tabs"></div>
+    <div id="d-chart" class="chart"></div>
+    <div id="d-dist" class="dist"></div>
+    <div id="d-table" class="table"></div>
+  </div>
+</div>
+
+<script src="uPlot.iife.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

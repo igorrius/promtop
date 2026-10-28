@@ -1,11 +1,7 @@
 package ui
 
 import (
-	"image/color"
 	"math"
-	"slices"
-	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -25,22 +21,10 @@ func (t *theme) renderPanel(p *view.Panel, w int, selected bool, now time.Time) 
 	if selected {
 		bc, tc = t.accent, t.accent
 	}
-	live := p.Family.Live()
-	head, headColor := t.headline(p, live)
-	badge := p.Kind.String()
-	if p.Group {
-		badge = "group · " + badge
-	}
-	if (p.Kind == view.KindHistogram || p.Kind == view.KindSummary) && len(live) > 1 {
-		badge += " " + rowLine(p)
-	}
-	if len(live) > 1 {
-		noun := " series"
-		if p.Group {
-			noun = " metrics"
-		}
-		badge += " · " + itoa(len(live)) + noun
-	}
+	head, tone := p.Headline(now)
+	headColor := t.tone(tone)
+	badge := p.Badge()
+	rows := p.Rows()
 
 	// ╭─ title ───── value ─╮
 	avail := w - 8
@@ -65,7 +49,7 @@ func (t *theme) renderPanel(p *view.Panel, w int, selected bool, now time.Time) 
 	top = cut(top, w)
 
 	cw := w - 4
-	body := t.content(p, live, cw, now)
+	body := t.content(p, rows, cw, now)
 	lines := []string{top}
 	for i := range contentRows {
 		b := ""
@@ -81,112 +65,7 @@ func (t *theme) renderPanel(p *view.Panel, w int, selected bool, now time.Time) 
 	return lines
 }
 
-// rowLine is the derived line plotted for each row of a multi-series
-// histogram/summary panel.
-func rowLine(p *view.Panel) string {
-	for _, s := range p.Family.Live() {
-		if q := quantileLines(s, 1); len(q) > 0 {
-			return q[0]
-		}
-		if len(s.Lines) > 0 {
-			return s.Lines[0].Name
-		}
-	}
-	return "p99"
-}
-
-// headline is the value shown in the panel's top border.
-func (t *theme) headline(p *view.Panel, live []*store.Series) (string, color.Color) {
-	if len(live) == 0 {
-		return "", t.value
-	}
-	switch p.Kind {
-	case view.KindInfo:
-		return "", t.value
-	case view.KindTimestamp:
-		if len(live) == 1 {
-			return ageText(p, live[0], time.Now()), t.value
-		}
-		return "", t.value
-	case view.KindState:
-		if p.Family.Type == expo.StateSet {
-			return activeStates(p, live), t.accent
-		}
-		up := 0
-		for _, s := range live {
-			if view.StateUp(s) {
-				up++
-			}
-		}
-		c := t.ok
-		if up < len(live) {
-			c = t.err
-		}
-		if len(live) == 1 {
-			if up == 1 {
-				return "up", c
-			}
-			return "down", c
-		}
-		return itoa(up) + "/" + itoa(len(live)) + " up", c
-	case view.KindRate:
-		if p.Group {
-			return "", t.value // different counters do not add up
-		}
-		sum, ok := 0.0, false
-		for _, s := range live {
-			if v := s.Primary().Last(); !math.IsNaN(v) {
-				sum, ok = sum+v, true
-			}
-		}
-		if !ok {
-			return "", t.value
-		}
-		if len(live) > 1 {
-			return "Σ " + p.Format(sum), t.value
-		}
-		return p.Format(sum), t.value
-	case view.KindHistogram, view.KindSummary:
-		if len(live) > 1 {
-			return "", t.value
-		}
-		l := rowLine(p)
-		if v := live[0].Line(l).Last(); !math.IsNaN(v) {
-			return l + " " + p.FormatLine(l, v), t.value
-		}
-		return "", t.value
-	case view.KindUsage:
-		worst := math.NaN()
-		for _, s := range live {
-			if u := p.Usage(s); !math.IsNaN(u) && (math.IsNaN(worst) || u > worst) {
-				worst = u
-			}
-		}
-		if math.IsNaN(worst) {
-			return "", t.value
-		}
-		txt := view.Percent(worst * 100)
-		if len(live) > 1 {
-			txt = "max " + txt
-		}
-		return txt, t.usageColor(worst)
-	}
-	if len(live) == 1 {
-		return p.Format(live[0].Raw), t.value
-	}
-	return "", t.value
-}
-
-func (t *theme) usageColor(f float64) color.Color {
-	switch {
-	case f >= 0.9:
-		return t.err
-	case f >= 0.7:
-		return t.warn
-	}
-	return t.ok
-}
-
+// content renders the panel body from its rows, ordered by p.Rows.
 func (t *theme) content(p *view.Panel, live []*store.Series, cw int, now time.Time) []string {
 	if len(live) == 0 {
 		return []string{t.paint(t.dim, "no data")}
@@ -252,14 +131,7 @@ func (t *theme) usageContent(p *view.Panel, s *store.Series, cw int) []string {
 
 // usageRows lists the series with the fullest first: label, percentage, bar.
 func (t *theme) usageRows(p *view.Panel, live []*store.Series, cw int) []string {
-	rows := append([]*store.Series(nil), live...)
-	u := func(s *store.Series) float64 {
-		if v := p.Usage(s); !math.IsNaN(v) {
-			return v
-		}
-		return -1
-	}
-	sort.SliceStable(rows, func(i, j int) bool { return u(rows[i]) > u(rows[j]) })
+	rows := live
 	n := contentRows
 	more := 0
 	if len(rows) > n {
@@ -273,7 +145,7 @@ func (t *theme) usageRows(p *view.Panel, live []*store.Series, cw int) []string 
 	for _, s := range rows {
 		f := p.Usage(s)
 		lbl := view.RowLabel(p.Family, s)
-		out = append(out, fit(lbl, lw)+" "+t.bold(t.usageColor(f), rpad(view.Percent(f*100), pctW))+" "+t.hbar(f, bw, t.usageAt(f)))
+		out = append(out, fit(lbl, lw)+" "+t.bold(t.tone(view.UsageTone(f)), rpad(view.Percent(f*100), pctW))+" "+t.hbar(f, bw, t.usageAt(f)))
 	}
 	if more > 0 {
 		out = append(out, t.paint(t.dim, "+"+itoa(more)+" more · enter for all"))
@@ -281,63 +153,10 @@ func (t *theme) usageRows(p *view.Panel, live []*store.Series, cw int) []string 
 	return out
 }
 
-// quantileLines returns up to n quantile line names (excluding rate/avg),
-// preferring a tail quantile, the median and the maximum.
-func quantileLines(s *store.Series, n int) []string {
-	var all []string
-	for _, l := range s.Lines {
-		if l.Name != "rate" && l.Name != "avg" {
-			all = append(all, l.Name)
-		}
-	}
-	has := func(name string) bool {
-		return slices.Contains(all, name)
-	}
-	var out []string
-	add := func(name string) {
-		if len(out) < n && has(name) {
-			if slices.Contains(out, name) {
-				return
-			}
-			out = append(out, name)
-		}
-	}
-	for _, tail := range []string{"p999", "p99", "p95", "p90", "p75"} {
-		if has(tail) {
-			add(tail)
-			break
-		}
-	}
-	add("p90")
-	add("p50")
-	add("max")
-	for _, a := range all {
-		add(a)
-	}
-	// Order by quantile descending for a natural top-to-bottom read.
-	rank := func(name string) float64 {
-		switch name {
-		case "max":
-			return 2
-		case "min":
-			return -1
-		}
-		// p5 = 5%, p50 = 50%, p999 = 99.9%
-		d := strings.TrimPrefix(name, "p")
-		if len(d) > 2 {
-			d = d[:2] + "." + d[2:]
-		}
-		v, _ := strconv.ParseFloat(d, 64)
-		return v / 100
-	}
-	sort.SliceStable(out, func(i, j int) bool { return rank(out[i]) > rank(out[j]) })
-	return out
-}
-
 func (t *theme) quantileContent(p *view.Panel, s *store.Series, cw int) []string {
 	const nameW, valW = 4, 9
 	sw := cw - nameW - valW - 2
-	names := quantileLines(s, contentRows-1)
+	names := view.QuantileLines(s, contentRows-1)
 	// Common scale so the lines are comparable.
 	var all []float64
 	for _, n := range names {
@@ -361,35 +180,9 @@ func (t *theme) quantileContent(p *view.Panel, s *store.Series, cw int) []string
 	return append(out, t.paint(t.dim, fit(footer, cw)))
 }
 
-// sortedRows orders the series of a panel for display: by the plotted value,
-// descending — except groups of gauges, which keep their name order so the
-// rows read like a table.
-func sortedRows(p *view.Panel, live []*store.Series, line string) []*store.Series {
-	out := append([]*store.Series(nil), live...)
-	if p.Group && p.Kind == view.KindGauge {
-		return out
-	}
-	val := func(s *store.Series) float64 {
-		r := s.Primary()
-		if line != "" {
-			r = s.Line(line)
-		}
-		v := r.Last()
-		if math.IsNaN(v) {
-			return math.Inf(-1)
-		}
-		return v
-	}
-	sort.SliceStable(out, func(i, j int) bool { return val(out[i]) > val(out[j]) })
-	return out
-}
-
 func (t *theme) multiContent(p *view.Panel, live []*store.Series, cw int) []string {
-	line := ""
-	if p.Kind == view.KindHistogram || p.Kind == view.KindSummary {
-		line = rowLine(p)
-	}
-	rows := sortedRows(p, live, line)
+	line := p.RowLine()
+	rows := live
 	n := contentRows
 	more := 0
 	if len(rows) > n {
@@ -403,12 +196,7 @@ func (t *theme) multiContent(p *view.Panel, live []*store.Series, cw int) []stri
 		sw = max(0, cw-valW-8)
 		lw = cw - valW - sw - 2
 	}
-	ring := func(s *store.Series) *store.Ring {
-		if line != "" {
-			return s.Line(line)
-		}
-		return s.Primary()
-	}
+	ring := func(s *store.Series) *store.Ring { return view.Ring(s, line) }
 	// Shared scale across rows so bars compare — except in groups, whose
 	// members measure different things.
 	var all []float64
@@ -454,10 +242,8 @@ func (t *theme) stateContent(p *view.Panel, live []*store.Series, cw int) []stri
 		out := []string{t.bold(c, mark)}
 		return append(out, "", t.stateHistory(s.Primary().Values(), cw))
 	}
-	rows := append([]*store.Series(nil), live...)
-	sort.SliceStable(rows, func(i, j int) bool { return !view.StateUp(rows[i]) && view.StateUp(rows[j]) })
-	chips := make([]string, 0, len(rows))
-	for _, s := range rows {
+	chips := make([]string, 0, len(live))
+	for _, s := range live {
 		lbl := view.RowLabel(p.Family, s)
 		if lbl == "" {
 			lbl = "{}"
@@ -504,16 +290,6 @@ func (t *theme) stateSetContent(p *view.Panel, live []*store.Series, cw int) []s
 		}
 	}
 	return flow(chips, cw, contentRows, t.paint(t.dim, "…"))
-}
-
-func activeStates(p *view.Panel, live []*store.Series) string {
-	var on []string
-	for _, s := range live {
-		if s.Raw == 1 {
-			on = append(on, view.RowLabel(p.Family, s))
-		}
-	}
-	return strings.Join(on, ", ")
 }
 
 // flow lays chips out left to right over at most rows lines of width w,
@@ -573,45 +349,21 @@ func (t *theme) infoContent(p *view.Panel, live []*store.Series, cw int) []strin
 	return out
 }
 
-// ageText renders a timestamp relative to now: "up 3d04h", "5m ago", "in 2h".
-func ageText(p *view.Panel, s *store.Series, now time.Time) string {
-	t := tsTime(p, s)
-	d := now.Sub(t)
-	name := strings.ToLower(p.Name())
-	switch {
-	case strings.Contains(name, "start") || strings.Contains(name, "boot"):
-		return "up " + view.Age(d)
-	case d >= 0:
-		return view.Age(d) + " ago"
-	}
-	return "in " + view.Age(-d)
-}
-
-func tsTime(p *view.Panel, s *store.Series) time.Time {
-	sec := s.Raw
-	if p.Scale != 0 {
-		sec *= p.Scale
-	}
-	return time.Unix(0, int64(sec*1e9))
-}
-
 func (t *theme) timestampContent(p *view.Panel, live []*store.Series, cw int, now time.Time) []string {
 	if len(live) == 1 {
 		s := live[0]
 		return []string{
-			t.bold(t.value, ageText(p, s, now)),
-			t.paint(t.dim, tsTime(p, s).Local().Format("2006-01-02 15:04:05 MST")),
+			t.bold(t.value, p.Age(s, now)),
+			t.paint(t.dim, p.Time(s).Local().Format("2006-01-02 15:04:05 MST")),
 		}
 	}
-	rows := append([]*store.Series(nil), live...)
-	sort.SliceStable(rows, func(i, j int) bool { return rows[i].Raw > rows[j].Raw })
 	var out []string
-	for i, s := range rows {
-		if i == contentRows-1 && len(rows) > contentRows {
-			out = append(out, t.paint(t.dim, "+"+itoa(len(rows)-i)+" more · enter for all"))
+	for i, s := range live {
+		if i == contentRows-1 && len(live) > contentRows {
+			out = append(out, t.paint(t.dim, "+"+itoa(len(live)-i)+" more · enter for all"))
 			break
 		}
-		age := ageText(p, s, now)
+		age := p.Age(s, now)
 		out = append(out, fit(view.RowLabel(p.Family, s), cw-vlen(age)-1)+" "+t.bold(t.value, age))
 	}
 	return out

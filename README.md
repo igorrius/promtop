@@ -21,6 +21,21 @@ promtop ./dump.prom     # an exposition saved to a file
 *The bundled demo (`go run ./examples/demo`): enter opens a full-size chart with every series,
 histograms show their bucket distribution.*
 
+## Web dashboard
+
+```sh
+promtop -web 8080
+```
+
+Serves the same dashboard as a web page on a free localhost port and opens it in the browser:
+cards with charts, hover values and drag-to-zoom in the details, a filter with metric-name
+completion, and light or dark theme following the system. The URL keeps the filter and the open
+metric (`#filter=http&metric=…`), so a link reopens the same view. The page only answers to
+`localhost`; `-web-addr 0.0.0.0:9999` exposes it to the network on purpose. `$BROWSER` picks the
+browser (`BROWSER=true` just prints the URL).
+
+![promtop web dashboard on the bundled demo](docs/web.png)
+
 ## Install
 
 ```sh
@@ -107,6 +122,8 @@ wheel, right-click to go back.
 -once             scrape twice, print one frame and exit (CI, logs, screenshots)
 -width n          width for -once
 -no-color         disable colours (NO_COLOR is honoured too)
+-web              serve the dashboard over HTTP and open it in the browser
+-web-addr addr    listen address for -web (default 127.0.0.1:0, a free local port)
 ```
 
 ## Try it

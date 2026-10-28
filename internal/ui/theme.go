@@ -104,6 +104,21 @@ func (t *theme) bold(c color.Color, s string) string {
 	return "\x1b[1m" + t.fg(c) + s + reset
 }
 
+// tone maps a presentation tone to a colour.
+func (t *theme) tone(v view.Tone) color.Color {
+	switch v {
+	case view.ToneOK:
+		return t.ok
+	case view.ToneWarn:
+		return t.warn
+	case view.ToneErr:
+		return t.err
+	case view.ToneAccent:
+		return t.accent
+	}
+	return t.value
+}
+
 // rampAt returns the gradient prefix for fraction f of kind k.
 func (t *theme) rampAt(k view.Kind, f float64) string {
 	return pick(t.ramps[k], f)
