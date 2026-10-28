@@ -1,23 +1,59 @@
 version: 2
 
+project_name: promtop
+
+before:
+  hooks:
+    - go mod download
+
 builds:
   - main: .
     env:
       - CGO_ENABLED=0
     goos: [linux, darwin, windows, freebsd]
-    goarch: [amd64, arm64]
+    goarch: [amd64, arm64, arm]
+    goarm: ["7"]
+    ignore:
+      - goos: darwin
+        goarch: arm
+      - goos: windows
+        goarch: arm
+      - goos: freebsd
+        goarch: arm
+    flags:
+      - -trimpath
     ldflags:
       - -s -w -X main.version={{ .Version }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
   - formats: [tar.gz]
     format_overrides:
       - goos: windows
         formats: [zip]
-    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}"
+
+# Linux packages: sudo dpkg -i promtop_*.deb, sudo rpm -i promtop_*.rpm,
+# sudo apk add --allow-untrusted promtop_*.apk, sudo pacman -U promtop_*.pkg.tar.zst
+nfpms:
+  - package_name: promtop
+    homepage: https://github.com/igorrius/promtop
+    maintainer: igorrius <igorrius@users.noreply.github.com>
+    description: Live terminal dashboard for Prometheus /metrics endpoints.
+    license: MIT
+    formats: [deb, rpm, apk, archlinux]
+    bindir: /usr/bin
+    contents:
+      - src: LICENSE
+        dst: /usr/share/licenses/promtop/LICENSE
+      - src: README.md
+        dst: /usr/share/doc/promtop/README.md
 
 checksum:
   name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
 
 changelog:
   sort: asc

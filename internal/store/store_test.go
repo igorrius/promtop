@@ -118,7 +118,7 @@ g{scope="x",kind="b"} 2
 
 func TestRingBounded(t *testing.T) {
 	r := NewRing(3)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		r.Push(float64(i))
 	}
 	if v := r.Values(); len(v) != 3 || v[0] != 7 || v[2] != 9 {
@@ -127,3 +127,14 @@ func TestRingBounded(t *testing.T) {
 }
 
 func ftoa(f float64) string { return strconv.FormatFloat(f, 'g', -1, 64) }
+
+// Families follow the latest exposition order, even when a family shows up
+// only in a later scrape.
+func TestFamilyOrder(t *testing.T) {
+	st := New(5)
+	st.Ingest(parse(t, "# TYPE b gauge\nb 1\n"), time.Unix(1000, 0))
+	st.Ingest(parse(t, "# TYPE a gauge\na 1\n# TYPE b gauge\nb 1\n"), time.Unix(1002, 0))
+	if got := st.Families[0].Name + st.Families[1].Name; got != "ab" {
+		t.Errorf("order = %s, want ab", got)
+	}
+}

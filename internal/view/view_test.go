@@ -50,11 +50,11 @@ func TestUnitOf(t *testing.T) {
 		"go_goroutine_count":              UnitNone,
 	}
 	for n, want := range cases {
-		if got, _ := UnitOf(n); got != want {
+		if got, _, _ := UnitOf(n, ""); got != want {
 			t.Errorf("UnitOf(%s) = %v, want %v", n, got, want)
 		}
 	}
-	if u, sym := UnitOf("node_hwmon_temp_celsius"); u != UnitOther || sym != "°C" {
+	if u, sym, _ := UnitOf("node_hwmon_temp_celsius", ""); u != UnitOther || sym != "°C" {
 		t.Errorf("celsius = %v %q", u, sym)
 	}
 }
@@ -65,7 +65,7 @@ func load(t *testing.T, path string) *store.Store {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	fams, err := expo.Parse(f)
 	if err != nil {
 		t.Fatal(err)

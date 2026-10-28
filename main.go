@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/igorrius/promtop/internal/scrape"
 	"github.com/igorrius/promtop/internal/ui"
+	webui "github.com/igorrius/promtop/internal/web"
 )
 
 var version = "dev"
@@ -35,6 +37,9 @@ Target (default localhost:8080):
   https://host/path        used as is
   ./metrics.txt            read an exposition from a file
 
+Web dashboard:
+  promtop -web 8080        serve the dashboard on localhost and open it in the browser
+
 Flags:
 `
 
@@ -54,11 +59,13 @@ func run() int {
 		filter   = fs.String("f", "", "only show metrics matching this regex")
 		timeout  = fs.Duration("timeout", 0, "scrape timeout (default: interval, at most 10s)")
 		showVer  = fs.Bool("version", false, "print version and exit")
+		web      = fs.Bool("web", false, "serve the dashboard over HTTP and open it in the browser instead of the terminal UI")
+		webAddr  = fs.String("web-addr", "127.0.0.1:0", "listen address for -web (default: a free port on localhost)")
 		headers  headerFlag
 	)
 	fs.Var(&headers, "H", `extra request header, repeatable ("Authorization: Bearer …")`)
 	fs.Usage = func() {
-		fmt.Fprint(fs.Output(), usage)
+		_, _ = fmt.Fprint(fs.Output(), usage)
 		fs.PrintDefaults()
 	}
 
@@ -66,7 +73,7 @@ func run() int {
 	args, positional := os.Args[1:], []string(nil)
 	for {
 		if err := fs.Parse(args); err != nil {
-			if err == flag.ErrHelp {
+			if errors.Is(err, flag.ErrHelp) {
 				return 0
 			}
 			return 2
@@ -100,10 +107,7 @@ func run() int {
 	}
 	to := *timeout
 	if to <= 0 {
-		to = min(*interval, 10*time.Second)
-		if to < time.Second {
-			to = time.Second
-		}
+		to = max(min(*interval, 10*time.Second), time.Second)
 	}
 	hdr := http.Header{}
 	for _, h := range headers {
@@ -116,6 +120,24 @@ func run() int {
 	}
 	src := &scrape.Source{URL: rawURL, File: file, Header: hdr, Timeout: to, Version: version}
 
+	if *web && *once {
+		fmt.Fprintln(os.Stderr, "promtop: -web and -once do not combine")
+		return 2
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if *web {
+		srv := webui.New(webui.Config{
+			Source: src, Interval: *interval, History: *history, ShowAll: *all, Filter: *filter,
+			Addr: *webAddr, Open: true, Out: os.Stderr,
+		})
+		if err := srv.Run(ctx); err != nil {
+			fmt.Fprintln(os.Stderr, "promtop:", err)
+			return 1
+		}
+		return 0
+	}
+
 	color := !*noColor && os.Getenv("NO_COLOR") == "" && os.Getenv("TERM") != "dumb"
 	if *once && !isTTY(os.Stdout) {
 		color = false
@@ -125,8 +147,6 @@ func run() int {
 		ShowAll: *all, Filter: *filter, Width: *width,
 	})
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	if *once {
 		err = app.RunOnce(ctx)
 	} else {

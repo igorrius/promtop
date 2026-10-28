@@ -1,0 +1,40 @@
+version: "2"
+
+linters:
+  enable:
+    - bodyclose
+    - copyloopvar
+    - dupword
+    - errorlint
+    - gocritic
+    - gosec
+    - intrange
+    - misspell
+    - modernize
+    - nilerr
+    - perfsprint
+    - revive
+    - unconvert
+    - unparam
+    - usestdlibvars
+    - wastedassign
+  settings:
+    gosec:
+      excludes:
+        - G115 # int → rune/byte conversions of bounded values (braille masks, ASCII separators)
+  exclusions:
+    presets:
+      - std-error-handling
+    rules:
+      # Test fixtures are opened by path on purpose.
+      - path: _test\.go
+        linters: [gosec]
+        text: G304|G703
+      # The demo generates synthetic load; it needs no cryptographic randomness.
+      - path: examples/
+        linters: [gosec]
+        text: G404
+
+formatters:
+  enable:
+    - gofmt

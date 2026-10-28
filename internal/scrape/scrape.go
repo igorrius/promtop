@@ -59,8 +59,8 @@ func NormalizeTarget(in string) (rawURL, file string, err error) {
 	if in == "" {
 		in = "localhost:8080"
 	}
-	if strings.HasPrefix(in, "file://") {
-		return "", strings.TrimPrefix(in, "file://"), nil
+	if after, ok := strings.CutPrefix(in, "file://"); ok {
+		return "", after, nil
 	}
 	if !strings.Contains(in, "://") {
 		if st, err := os.Stat(in); err == nil && !st.IsDir() {
@@ -144,7 +144,7 @@ func (s *Source) fetch(ctx context.Context) ([]*expo.Family, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 200))
 		return nil, fmt.Errorf("%s: %s", resp.Status, strings.TrimSpace(string(snippet)))

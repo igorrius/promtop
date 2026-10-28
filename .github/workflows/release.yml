@@ -1,5 +1,9 @@
 name: release
 
+# Push a tag to publish a GitHub release with archives for every platform,
+# Linux packages (.deb, .rpm, .apk, Arch) and checksums:
+#
+#   git tag v0.2.0 && git push origin v0.2.0
 on:
   push:
     tags: ["v*"]
@@ -17,6 +21,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - name: test
+        run: go test ./...
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"

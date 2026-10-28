@@ -32,7 +32,7 @@ func TestScrapeHTTP(t *testing.T) {
 	var gotAuth, gotAccept string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth, gotAccept = r.Header.Get("Authorization"), r.Header.Get("Accept")
-		w.Write([]byte("# TYPE up gauge\nup 1\n"))
+		_, _ = w.Write([]byte("# TYPE up gauge\nup 1\n"))
 	}))
 	defer srv.Close()
 	src := &Source{URL: srv.URL + "/metrics", Header: http.Header{"Authorization": {"Bearer t"}}, Timeout: time.Second}
@@ -44,7 +44,7 @@ func TestScrapeHTTP(t *testing.T) {
 		t.Errorf("headers: auth=%q accept=%q", gotAuth, gotAccept)
 	}
 
-	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "nope", http.StatusUnauthorized)
 	}))
 	defer bad.Close()

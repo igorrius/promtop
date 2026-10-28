@@ -4,6 +4,7 @@ package store
 
 import (
 	"math"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,8 +19,10 @@ type Ring struct {
 	max  int
 }
 
-func NewRing(max int) *Ring { return &Ring{max: max} }
+// NewRing returns a ring keeping the last n values.
+func NewRing(n int) *Ring { return &Ring{max: n} }
 
+// Push appends v, dropping the oldest value when the ring is full.
 func (r *Ring) Push(v float64) {
 	r.vals = append(r.vals, v)
 	if len(r.vals) > r.max {
@@ -85,11 +88,11 @@ func (s *Series) Primary() *Ring {
 	return s.Lines[0].Ring
 }
 
-func (s *Series) ensure(name string, max int) *Ring {
+func (s *Series) ensure(name string, n int) *Ring {
 	if r := s.Line(name); r != nil {
 		return r
 	}
-	r := NewRing(max)
+	r := NewRing(n)
 	s.Lines = append(s.Lines, Line{Name: name, Ring: r})
 	return r
 }
@@ -99,8 +102,10 @@ type Family struct {
 	Name   string
 	Type   expo.Type
 	Help   string
+	Unit   string    // OpenMetrics # UNIT, if declared
 	Series []*Series // stable order of first appearance
 	byKey  map[string]*Series
+	order  int // position in the latest scrape that had it
 	// CommonLabels are label pairs identical in every series of the family;
 	// they are hidden from per-series display.
 	CommonLabels []expo.Label
@@ -115,6 +120,7 @@ type Store struct {
 	Scrapes   int
 }
 
+// New returns an empty store keeping maxPoints values per line.
 func New(maxPoints int) *Store {
 	if maxPoints < 2 {
 		maxPoints = 2
@@ -138,14 +144,14 @@ func (st *Store) Ingest(fams []*expo.Family, at time.Time) {
 			s.Seen = false
 		}
 	}
-	for _, ef := range fams {
+	for i, ef := range fams {
 		f := st.byName[ef.Name]
 		if f == nil {
 			f = &Family{Name: ef.Name, byKey: map[string]*Series{}}
 			st.byName[ef.Name] = f
 			st.Families = append(st.Families, f)
 		}
-		f.Type, f.Help = ef.Type, ef.Help
+		f.Type, f.Help, f.Unit, f.order = ef.Type, ef.Help, ef.Unit, i
 		switch ef.Type {
 		case expo.Histogram, expo.GaugeHistogram:
 			st.ingestHistogram(f, ef, dt)
@@ -158,6 +164,9 @@ func (st *Store) Ingest(fams []*expo.Family, at time.Time) {
 		}
 		f.CommonLabels = commonLabels(f)
 	}
+	// Follow the exposition order: client libraries create labelled metrics
+	// lazily, so families can first appear after the ones exposed below them.
+	sort.SliceStable(st.Families, func(i, j int) bool { return st.Families[i].order < st.Families[j].order })
 }
 
 func (f *Family) series(labels []expo.Label, exclude ...string) *Series {
@@ -200,9 +209,10 @@ func (st *Store) ingestCounter(f *Family, ef *expo.Family, dt float64) {
 	}
 }
 
-// Quantiles shown for histograms.
+// HistQuantiles are the quantiles derived from histograms.
 var HistQuantiles = []float64{0.5, 0.9, 0.99}
 
+// QuantileName names a quantile line: p50, p99, p999, min, max.
 func QuantileName(q float64) string {
 	switch q {
 	case 0:
@@ -430,8 +440,8 @@ func (st *Store) ingestSummary(f *Family, ef *expo.Family, dt float64) {
 // max), then the rest descending.
 func pickSummaryOrder(qs []float64) []float64 {
 	out := make([]float64, 0, len(qs))
-	for i := len(qs) - 1; i >= 0; i-- {
-		out = append(out, qs[i])
+	for _, q := range slices.Backward(qs) {
+		out = append(out, q)
 	}
 	if len(out) > 1 && out[0] == 1 {
 		out = append(out[1:], out[0])
@@ -470,6 +480,29 @@ func commonLabels(f *Family) []expo.Label {
 		}
 	}
 	return out
+}
+
+// Lookup returns the series with the given key (see expo.LabelKey) or nil.
+func (f *Family) Lookup(key string) *Series {
+	if f == nil {
+		return nil
+	}
+	return f.byKey[key]
+}
+
+// Idle reports whether the series never had a non-zero value in its history.
+func (s *Series) Idle() bool {
+	if s.Raw != 0 {
+		return false
+	}
+	for _, l := range s.Lines {
+		for _, v := range l.Ring.Values() {
+			if v != 0 && !math.IsNaN(v) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // Live returns the series present in the latest scrape.
