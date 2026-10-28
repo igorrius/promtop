@@ -32,7 +32,7 @@ func TestPrefixes(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			srv := httptest.NewServer(m.h)
 			defer srv.Close()
-			get := func(path string) (*http.Response, string) {
+			get := func(path string) (code int, ctype, body string) {
 				t.Helper()
 				res, err := http.Get(srv.URL + m.prefix + path)
 				if err != nil {
@@ -40,23 +40,23 @@ func TestPrefixes(t *testing.T) {
 				}
 				defer func() { _ = res.Body.Close() }()
 				b, _ := io.ReadAll(res.Body)
-				return res, string(b)
+				return res.StatusCode, res.Header.Get("Content-Type"), string(b)
 			}
-			if res, _ := get("/"); res.StatusCode != http.StatusOK || !strings.HasPrefix(res.Header.Get("Content-Type"), "text/html") {
-				t.Errorf("index: %d %s", res.StatusCode, res.Header.Get("Content-Type"))
+			if code, ct, _ := get("/"); code != http.StatusOK || !strings.HasPrefix(ct, "text/html") {
+				t.Errorf("index: %d %s", code, ct)
 			}
 			for _, p := range []string{"/app.js", "/style.css", "/uPlot.iife.min.js", "/api/panel?id=app_up"} {
-				if res, _ := get(p); res.StatusCode != http.StatusOK {
-					t.Errorf("%s: %d", p, res.StatusCode)
+				if code, _, _ := get(p); code != http.StatusOK {
+					t.Errorf("%s: %d", p, code)
 				}
 			}
-			res, body := get("/api/config")
+			code, _, body := get("/api/config")
 			var cfg struct {
 				All    bool   `json:"all"`
 				Filter string `json:"filter"`
 			}
-			if res.StatusCode != http.StatusOK || json.Unmarshal([]byte(body), &cfg) != nil || !cfg.All || cfg.Filter != "disk" {
-				t.Errorf("config: %d %s", res.StatusCode, body)
+			if code != http.StatusOK || json.Unmarshal([]byte(body), &cfg) != nil || !cfg.All || cfg.Filter != "disk" {
+				t.Errorf("config: %d %s", code, body)
 			}
 
 			ev, err := http.Get(srv.URL + m.prefix + "/api/events")
