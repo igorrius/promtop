@@ -1,0 +1,191 @@
+# HELP go_config_gogc_percent Heap size target percentage configured by the user, otherwise 100.
+# TYPE go_config_gogc_percent gauge
+go_config_gogc_percent{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0"} 100
+# HELP go_goroutine_count Count of live goroutines.
+# TYPE go_goroutine_count gauge
+go_goroutine_count{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0"} 365
+# HELP go_memory_allocated_bytes_total Memory allocated to the heap by the application.
+# TYPE go_memory_allocated_bytes_total counter
+go_memory_allocated_bytes_total{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0"} 8.96592496e+08
+# HELP go_memory_allocations_total Count of allocations to the heap by the application.
+# TYPE go_memory_allocations_total counter
+go_memory_allocations_total{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0"} 1.5440144e+07
+# HELP go_memory_gc_goal_bytes Heap size target for the end of the GC cycle.
+# TYPE go_memory_gc_goal_bytes gauge
+go_memory_gc_goal_bytes{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0"} 4.49239762e+08
+# HELP go_memory_used_bytes Memory used by the Go runtime.
+# TYPE go_memory_used_bytes gauge
+go_memory_used_bytes{go_memory_type="other",otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0"} 4.49263992e+08
+go_memory_used_bytes{go_memory_type="stack",otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0"} 1.80224e+06
+# HELP go_processor_limit The number of OS threads that can execute user-level Go code simultaneously.
+# TYPE go_processor_limit gauge
+go_processor_limit{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0"} 14
+# HELP go_schedule_duration_seconds The time goroutines have spent in the scheduler in a runnable state before actually running.
+# TYPE go_schedule_duration_seconds histogram
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0"} 0
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="6.4e-08"} 83
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="1.28e-07"} 86
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="1.92e-07"} 93
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="2.56e-07"} 98
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="3.2e-07"} 104
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="3.84e-07"} 111
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="4.48e-07"} 118
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="5.12e-07"} 120
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="6.4e-07"} 136
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="7.68e-07"} 153
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="8.96e-07"} 177
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="1.024e-06"} 200
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="1.28e-06"} 254
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="1.536e-06"} 286
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="1.792e-06"} 304
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="2.048e-06"} 319
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="2.56e-06"} 347
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="3.072e-06"} 363
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="3.584e-06"} 372
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="4.096e-06"} 377
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="5.12e-06"} 390
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="6.144e-06"} 395
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="7.168e-06"} 401
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="8.192e-06"} 404
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="1.024e-05"} 406
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="1.2288e-05"} 416
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="1.4336e-05"} 420
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="1.6384e-05"} 423
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="2.048e-05"} 429
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="2.4576e-05"} 438
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="2.8672e-05"} 444
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="3.2768e-05"} 452
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="4.096e-05"} 465
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="4.9152e-05"} 475
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="5.7344e-05"} 480
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="6.5536e-05"} 489
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="8.192e-05"} 506
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="9.8304e-05"} 516
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.000114688"} 524
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.000131072"} 529
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.00016384"} 530
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.000196608"} 530
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.000229376"} 530
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.000262144"} 531
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.00032768"} 532
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.000393216"} 532
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.000458752"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.000524288"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.00065536"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.000786432"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.000917504"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.001048576"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.00131072"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.001572864"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.001835008"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.002097152"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.00262144"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.003145728"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.003670016"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.004194304"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.00524288"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.006291456"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.007340032"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.008388608"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.01048576"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.012582912"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.014680064"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.016777216"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.02097152"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.025165824"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.029360128"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.033554432"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.04194304"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.050331648"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.058720256"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.067108864"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.08388608"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.100663296"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.117440512"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.134217728"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.16777216"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.201326592"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.234881024"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.268435456"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.33554432"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.402653184"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.469762048"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.536870912"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.67108864"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.805306368"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="0.939524096"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="1.073741824"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="1.34217728"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="1.610612736"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="1.879048192"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="2.147483648"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="2.68435456"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="3.221225472"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="3.758096384"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="4.294967296"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="5.36870912"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="6.442450944"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="7.516192768"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="8.589934592"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="10.73741824"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="12.884901888"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="15.032385536"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="17.179869184"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="21.47483648"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="25.769803776"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="30.064771072"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="34.359738368"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="42.94967296"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="51.539607552"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="60.129542144"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="68.719476736"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="85.89934592"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="103.079215104"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="120.259084288"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="137.438953472"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="171.79869184"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="206.158430208"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="240.518168576"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="274.877906944"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="343.59738368"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="412.316860416"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="481.036337152"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="549.755813888"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="687.19476736"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="824.633720832"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="962.072674304"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="1099.511627776"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="1374.38953472"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="1649.267441664"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="1924.145348608"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="2199.023255552"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="2748.77906944"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="3298.534883328"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="3848.290697216"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="4398.046511104"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="5497.55813888"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="6597.069766656"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="7696.581394432"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="8796.093022208"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="10995.11627776"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="13194.139533312"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="15393.162788864"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="17592.186044416"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="21990.23255552"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="26388.279066624"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="30786.325577728"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="35184.372088832"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="43980.46511104"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="52776.558133248"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="61572.651155456"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="70368.744177664"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="87960.93022208"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="105553.116266496"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="123145.302310912"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="140737.488355328"} 533
+go_schedule_duration_seconds_bucket{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0",le="+Inf"} 533
+go_schedule_duration_seconds_sum{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0"} 0.007276224
+go_schedule_duration_seconds_count{otel_scope_name="go.opentelemetry.io/contrib/instrumentation/runtime",otel_scope_schema_url="",otel_scope_version="0.72.0"} 533
+# HELP target_info Target metadata
+# TYPE target_info gauge
+target_info{service_name="pape",telemetry_sdk_language="go",telemetry_sdk_name="opentelemetry",telemetry_sdk_version="1.47.0"} 1

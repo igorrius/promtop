@@ -1,0 +1,4 @@
+/promtop
+/dist/
+*.test
+*.out
