@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"regexp"
 	"runtime"
 	"strconv"
@@ -188,11 +189,7 @@ func (s *Server) ingest(r scrape.Result) {
 // Handler returns the HTTP routes. Requests that allow rejects get a 403;
 // a nil allow lets everyone in.
 func (s *Server) Handler(allow func(*http.Request) bool) http.Handler {
-	mux := http.NewServeMux()
-	static, _ := fs.Sub(assets, "assets")
-	mux.Handle("GET /", http.FileServerFS(static))
-	mux.HandleFunc("GET /api/events", s.events)
-	mux.HandleFunc("GET /api/panel", s.panel)
+	mux := http.HandlerFunc(s.route)
 	if allow == nil {
 		return mux
 	}
@@ -203,6 +200,57 @@ func (s *Server) Handler(allow func(*http.Request) bool) http.Handler {
 		}
 		mux.ServeHTTP(w, r)
 	})
+}
+
+var static, _ = fs.Sub(assets, "assets")
+
+// route dispatches on the end of the path, not the whole of it, so the
+// dashboard works wherever it is mounted, with or without http.StripPrefix.
+// The page only uses relative URLs.
+func (s *Server) route(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	p := r.URL.Path
+	base := path.Base(p)
+	switch {
+	case strings.HasSuffix(p, "/api/events"):
+		s.events(w, r)
+	case strings.HasSuffix(p, "/api/panel"):
+		s.panel(w, r)
+	case strings.HasSuffix(p, "/api/config"):
+		s.config(w)
+	case strings.HasSuffix(p, "/"):
+		http.ServeFileFS(w, r, static, "index.html")
+	case p == "" || strings.HasSuffix(p, "/api"):
+		http.NotFound(w, r)
+	case isAsset(base):
+		http.ServeFileFS(w, r, static, base)
+	case !strings.Contains(base, "."):
+		// The mount point without its slash: relative URLs need the slash.
+		// A relative Location stays right behind StripPrefix and proxies.
+		w.Header().Set("Location", base+"/")
+		w.WriteHeader(http.StatusMovedPermanently)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func isAsset(name string) bool {
+	st, err := fs.Stat(static, name)
+	return err == nil && !st.IsDir() && name != "index.html"
+}
+
+// config tells the page its initial options when its URL has no fragment.
+func (s *Server) config(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(struct {
+		All    bool   `json:"all"`
+		Filter string `json:"filter"`
+	}{s.cfg.ShowAll, s.cfg.Filter})
 }
 
 // HostOnly admits requests that name a loopback host, which stops
@@ -348,9 +396,11 @@ func (s *Server) panel(w http.ResponseWriter, r *http.Request) {
 			p = view.Classify(f, s.st)
 		}
 	}
-	var d Detail
+	// Encode under the lock: the detail's series share memory with the
+	// store, which the next scrape writes into.
+	var body []byte
 	if p != nil {
-		d = detail(p, s.cfg.Interval, s.lastAt, time.Now())
+		body, _ = json.Marshal(detail(p, s.cfg.Interval, s.lastAt, time.Now()))
 	}
 	s.mu.Unlock()
 	if p == nil {
@@ -359,7 +409,7 @@ func (s *Server) panel(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
-	_ = json.NewEncoder(w).Encode(d)
+	_, _ = w.Write(append(body, '\n'))
 }
 
 // openBrowser opens url with $BROWSER when set (BROWSER=true turns it off),

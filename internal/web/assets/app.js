@@ -528,10 +528,24 @@ function setFilter(v) {
   connect();
 }
 
-function init() {
+// initialOptions reads the URL fragment; without one, the server's defaults.
+async function initialOptions(h) {
+  if (location.hash.length > 1) return { all: h.get("all") === "1", filter: h.get("filter") || "" };
+  try {
+    const res = await fetch("api/config");
+    if (res.ok) {
+      const c = await res.json();
+      return { all: !!c.all, filter: c.filter || "" };
+    }
+  } catch { /* offline or old server: plain defaults */ }
+  return { all: false, filter: "" };
+}
+
+async function init() {
   const h = new URLSearchParams(location.hash.slice(1));
-  state.opts.all = h.get("all") === "1";
-  state.opts.filter = h.get("filter") || "";
+  const o = await initialOptions(h);
+  state.opts.all = o.all;
+  state.opts.filter = o.filter;
   $("all").checked = state.opts.all;
   $("filter").value = state.opts.filter;
 
