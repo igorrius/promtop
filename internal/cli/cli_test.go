@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"image/png"
@@ -9,7 +9,7 @@ import (
 	"github.com/igorrius/promtop/internal/history"
 )
 
-const fixture = "internal/expo/testdata/otel_go_runtime.prom"
+const fixture = "../expo/testdata/otel_go_runtime.prom"
 
 func TestRenderCommand(t *testing.T) {
 	dir := t.TempDir()
