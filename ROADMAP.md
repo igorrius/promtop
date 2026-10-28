@@ -31,6 +31,8 @@ off. Nothing here is promised; issues and pull requests are welcome.
 
 ## Web dashboard
 
+- A `prometheus.Gatherer` adapter for `dash`, for services that have a registry but no handler.
+  It would live in its own module so that `client_golang` stays out of promtop's `go.mod`.
 - Changing the scrape interval and pausing on the server, not just in the page.
 - Overlaying several series of one metric in the detail chart.
 - A test that keeps the page's value formatting in step with the Go formatter in CI (it is
