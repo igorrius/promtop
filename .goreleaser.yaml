@@ -59,9 +59,3 @@ changelog:
   sort: asc
   filters:
     exclude: ["^docs:", "^test:", "^ci:"]
-
-# The repository uses immutable releases: GoReleaser creates the release as a
-# draft, uploads everything and only then publishes it. A draft prepared by
-# hand for the tag is reused, notes included.
-release:
-  use_existing_draft: true

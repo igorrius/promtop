@@ -207,9 +207,11 @@ make screenshots # docs/*.png and docs/promtop.gif from the demo (needs Chrome a
 Releases are built by GoReleaser in CI: push a `v*` tag and the release with all archives,
 packages and checksums appears on GitHub. Every CI run also uploads a snapshot build as an artifact.
 
-Do not publish the release in the GitHub UI first: the repository uses immutable releases, and a
-published release cannot receive its files any more. To write the notes by hand, save the release
-as a **draft** for the tag; GoReleaser fills that draft and publishes it.
+To write the notes by hand, publish the release in the GitHub UI with a new `v*` tag: the tag
+starts the same job, which finds the release by its tag, keeps the notes and adds the files.
+Two things break it: a release left as a draft (GoReleaser looks releases up by tag, and drafts
+have none yet, so it creates a second one) and immutable releases, which accept no files once
+published.
 
 What comes next is in [ROADMAP.md](ROADMAP.md).
 
