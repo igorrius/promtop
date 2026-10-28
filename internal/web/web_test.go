@@ -84,7 +84,7 @@ func TestFrame(t *testing.T) {
 
 func TestEventsAndPanel(t *testing.T) {
 	s := newServer(t)
-	srv := httptest.NewServer(s.Handler(true))
+	srv := httptest.NewServer(s.Handler(HostOnly))
 	defer srv.Close()
 
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -145,7 +145,7 @@ func TestEventsAndPanel(t *testing.T) {
 // A page on another origin that resolves its name to 127.0.0.1 (DNS
 // rebinding) must not read the metrics.
 func TestHostCheck(t *testing.T) {
-	h := newServer(t).Handler(true)
+	h := newServer(t).Handler(HostOnly)
 	for host, want := range map[string]int{
 		"localhost:9090":   http.StatusOK,
 		"127.0.0.1:9090":   http.StatusOK,

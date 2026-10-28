@@ -34,7 +34,7 @@ var assets embed.FS
 
 // Config configures the web dashboard.
 type Config struct {
-	Source   *scrape.Source
+	Source   scrape.Scraper
 	Interval time.Duration
 	History  int
 	ShowAll  bool   // initial state of the "all metrics" toggle
@@ -42,6 +42,7 @@ type Config struct {
 	Addr     string // listen address; 127.0.0.1:0 picks a free local port
 	Open     bool   // open the page in the default browser
 	Out      io.Writer
+	Denied   string // body of a 403; default "promtop only answers to localhost"
 }
 
 // Server scrapes the target and serves the dashboard.
@@ -58,11 +59,36 @@ type Server struct {
 
 	cacheSeq int
 	cache    map[string][]byte // frame JSON by options, for the current seq
+
+	start sync.Once
+	stop  sync.Once
+	done  chan struct{} // closed by Close: ends polling and event streams
+	wg    sync.WaitGroup
 }
 
 // New returns a server that has not scraped yet.
 func New(cfg Config) *Server {
-	return &Server{cfg: cfg, st: store.New(cfg.History), subs: map[chan struct{}]struct{}{}}
+	if cfg.Denied == "" {
+		cfg.Denied = "promtop only answers to localhost"
+	}
+	return &Server{
+		cfg: cfg, st: store.New(cfg.History), subs: map[chan struct{}]struct{}{},
+		done: make(chan struct{}),
+	}
+}
+
+// Start begins scraping in the background; calls after the first do nothing.
+func (s *Server) Start() {
+	s.start.Do(func() {
+		s.wg.Go(s.scrapeLoop)
+	})
+}
+
+// Close stops scraping, ends open event streams and waits for the scrape
+// loop to return. It is safe to call more than once, and without Start.
+func (s *Server) Close() {
+	s.stop.Do(func() { close(s.done) })
+	s.wg.Wait()
 }
 
 // Run listens, opens the browser if asked and serves until ctx is done.
@@ -85,10 +111,15 @@ func (s *Server) Run(ctx context.Context) error {
 		_, _ = fmt.Fprintf(s.cfg.Out, "promtop: listening on %s — anyone who can reach it sees these metrics\n", addr)
 	}
 
-	go s.scrapeLoop(ctx)
-	srv := &http.Server{Handler: s.Handler(addr.IP.IsLoopback()), ReadHeaderTimeout: 5 * time.Second}
+	var allow func(*http.Request) bool
+	if addr.IP.IsLoopback() {
+		allow = HostOnly
+	}
+	s.Start()
+	srv := &http.Server{Handler: s.Handler(allow), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		<-ctx.Done()
+		s.Close()
 		sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 		defer cancel()
 		_ = srv.Shutdown(sctx)
@@ -116,13 +147,22 @@ func (s *Server) query() string {
 	return strings.Join(q, "&")
 }
 
-func (s *Server) scrapeLoop(ctx context.Context) {
+func (s *Server) scrapeLoop() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		select {
+		case <-s.done:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
 	t := time.NewTicker(s.cfg.Interval)
 	defer t.Stop()
 	for {
 		s.ingest(s.cfg.Source.Scrape(ctx))
 		select {
-		case <-ctx.Done():
+		case <-s.done:
 			return
 		case <-t.C:
 		}
@@ -145,27 +185,32 @@ func (s *Server) ingest(r scrape.Result) {
 	s.mu.Unlock()
 }
 
-// Handler returns the HTTP routes. With localOnly, requests must name a
-// loopback host, which stops DNS-rebinding pages from reading the metrics.
-func (s *Server) Handler(localOnly bool) http.Handler {
+// Handler returns the HTTP routes. Requests that allow rejects get a 403;
+// a nil allow lets everyone in.
+func (s *Server) Handler(allow func(*http.Request) bool) http.Handler {
 	mux := http.NewServeMux()
 	static, _ := fs.Sub(assets, "assets")
 	mux.Handle("GET /", http.FileServerFS(static))
 	mux.HandleFunc("GET /api/events", s.events)
 	mux.HandleFunc("GET /api/panel", s.panel)
-	if !localOnly {
+	if allow == nil {
 		return mux
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !loopbackHost(r.Host) {
-			http.Error(w, "promtop only answers to localhost", http.StatusForbidden)
+		if !allow(r) {
+			http.Error(w, s.cfg.Denied, http.StatusForbidden)
 			return
 		}
 		mux.ServeHTTP(w, r)
 	})
 }
 
-func loopbackHost(hostport string) bool {
+// HostOnly admits requests that name a loopback host, which stops
+// DNS-rebinding pages from reading the metrics.
+func HostOnly(r *http.Request) bool { return LoopbackHost(r.Host) }
+
+// LoopbackHost reports whether hostport names localhost or a loopback IP.
+func LoopbackHost(hostport string) bool {
 	h, _, err := net.SplitHostPort(hostport)
 	if err != nil {
 		h = hostport
@@ -268,6 +313,8 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	for {
 		select {
 		case <-r.Context().Done():
+			return
+		case <-s.done:
 			return
 		case <-ch:
 			if !send() {
