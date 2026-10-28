@@ -136,3 +136,16 @@ func TestClose(t *testing.T) {
 		t.Errorf("still scraping after Close: %d → %d", n, m)
 	}
 }
+
+func TestCloseWithHungHandler(t *testing.T) {
+	release := make(chan struct{})
+	defer close(release)
+	d := New(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-release }), Interval(time.Hour))
+	closed := make(chan struct{})
+	go func() { _ = d.Close(); close(closed) }()
+	select {
+	case <-closed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close waits for a hung metrics handler")
+	}
+}

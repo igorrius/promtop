@@ -74,7 +74,7 @@ func New(cfg Config) *Server {
 	}
 	return &Server{
 		cfg: cfg, st: store.New(cfg.History), subs: map[chan struct{}]struct{}{},
-		done: make(chan struct{}),
+		cache: map[string][]byte{}, done: make(chan struct{}),
 	}
 }
 
@@ -214,6 +214,17 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := r.URL.Path
+	if p == "" {
+		// The whole mount point was stripped (chi-style mounting): the
+		// original path tells the page from the mount point without its slash.
+		p = "/" + originalBase(r)
+		if p == "/" {
+			http.NotFound(w, r)
+			return
+		}
+	} else if !strings.HasPrefix(p, "/") {
+		p = "/" + p // http.StripPrefix with the mount point's trailing slash
+	}
 	base := path.Base(p)
 	switch {
 	case strings.HasSuffix(p, "/api/events"):
@@ -224,18 +235,31 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		s.config(w)
 	case strings.HasSuffix(p, "/"):
 		http.ServeFileFS(w, r, static, "index.html")
-	case p == "" || strings.HasSuffix(p, "/api"):
+	case strings.HasSuffix(p, "/api"):
 		http.NotFound(w, r)
 	case isAsset(base):
 		http.ServeFileFS(w, r, static, base)
 	case !strings.Contains(base, "."):
 		// The mount point without its slash: relative URLs need the slash.
 		// A relative Location stays right behind StripPrefix and proxies.
-		w.Header().Set("Location", base+"/")
+		w.Header().Set("Location", "./"+url.PathEscape(base)+"/")
 		w.WriteHeader(http.StatusMovedPermanently)
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// originalBase is the last segment of the path as the client sent it, with
+// the trailing slash kept: "webmetrics" or "webmetrics/" for /webmetrics/.
+func originalBase(r *http.Request) string {
+	u, err := url.ParseRequestURI(r.RequestURI)
+	if err != nil || u.Path == "" || u.Path == "/" {
+		return ""
+	}
+	if strings.HasSuffix(u.Path, "/") {
+		return path.Base(u.Path) + "/"
+	}
+	return path.Base(u.Path)
 }
 
 func isAsset(name string) bool {
@@ -318,6 +342,13 @@ func (s *Server) frame(o options) []byte {
 	return b
 }
 
+// lockedFrame is frame under the lock.
+func (s *Server) lockedFrame(o options) []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.frame(o)
+}
+
 // events streams a frame after every scrape.
 func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
@@ -340,9 +371,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	h.Set("Content-Type", "text/event-stream")
 	h.Set("Cache-Control", "no-store")
 	send := func() bool {
-		s.mu.Lock()
-		b := s.frame(o)
-		s.mu.Unlock()
+		b := s.lockedFrame(o)
 		var buf bytes.Buffer
 		buf.WriteString("data: ")
 		buf.Write(b)

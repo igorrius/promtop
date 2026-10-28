@@ -70,9 +70,11 @@ Who gets to see it:
 | `dash.Localhost` (default) | loopback clients naming a loopback host | Works on a dev machine and through `kubectl port-forward`; ingress and other pods get 403. A reverse-proxy sidecar on localhost looks local too. |
 | `dash.PrivateNetwork` | loopback and private addresses (10/8, 172.16/12, 192.168/16, fc00::/7) | For Docker, docker-compose, WSL2 and local VMs, where the host's browser arrives from a bridge address. In Kubernetes it opens the dashboard to the whole cluster network. |
 | `dash.Anyone` | everyone | |
-| your own `func(*http.Request) bool` | what it says | Compose with the above: `dash.Localhost(r) \|\| r.Header.Get("X-Token") == token`. |
+| your own `func(*http.Request) bool` | what it says | Compose with the above, e.g. `dash.Localhost(r) \|\| vpn.Contains(addr)`. |
 
-The dashboard shows the same data as `/metrics` next to it. Turning it on per environment is up to
+For a login, wrap the handler in your own auth middleware and let it in with `dash.Allow(dash.Anyone)`:
+the page and its event stream are plain same-origin requests, so cookies and basic auth reach it,
+custom headers do not. The dashboard shows the same data as `/metrics` next to it. Turning it on per environment is up to
 the service, e.g.:
 
 ```go
