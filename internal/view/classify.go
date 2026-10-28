@@ -125,6 +125,10 @@ type Section struct {
 type Options struct {
 	ShowAll bool
 	Filter  *regexp.Regexp
+	// GroupFiltered keeps grouping crowded sections under a filter. The live
+	// views list filtered metrics one by one; a snapshot of node_memory_*
+	// would otherwise be dozens of panels tall.
+	GroupFiltered bool
 }
 
 // Classify picks the widget for a family. It returns nil for families that

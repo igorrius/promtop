@@ -3,6 +3,7 @@ package view
 import (
 	"fmt"
 	"math"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -214,4 +215,26 @@ func TestTokens(t *testing.T) {
 	if got := stripUnit("MemFree_bytes"); got != "MemFree" {
 		t.Errorf("stripUnit = %s", got)
 	}
+}
+
+// A filter that selects both sides of a usage pair shows the usage panel
+// only; one that selects just the limit shows the limit.
+func TestFilterHidesMergedLimit(t *testing.T) {
+	st := load(t, "testdata/exporters.prom")
+	ps := panels(Build(st, Options{Filter: regexp.MustCompile("filesystem")}))
+	if ps["node_filesystem_avail_bytes"] == nil || ps["node_filesystem_size_bytes"] != nil {
+		t.Errorf("filesystem filter shows %v", keys(ps))
+	}
+	ps = panels(Build(st, Options{Filter: regexp.MustCompile("size")}))
+	if ps["node_filesystem_size_bytes"] == nil {
+		t.Errorf("size filter shows %v", keys(ps))
+	}
+}
+
+func keys(m map[string]*Panel) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }

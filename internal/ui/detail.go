@@ -17,6 +17,9 @@ type detailState struct {
 	series int // index into sorted live series
 	line   int // index into the series' lines
 	scroll int // table scroll offset
+
+	// Fixed sizes for snapshots; zero splits the screen height.
+	chartRows, tableRows int
 }
 
 // renderDetail draws the fullscreen view of one panel in w×h cells.
@@ -66,6 +69,9 @@ func (t *theme) renderDetail(p *view.Panel, ds *detailState, interval string, w,
 	// series table.
 	var bottom []string
 	tableH := max(4, h/3)
+	if ds.tableRows > 0 {
+		tableH = ds.tableRows
+	}
 	if p.Kind == view.KindHistogram {
 		bottom = t.distribution(p, s, w, tableH)
 	}
@@ -79,6 +85,9 @@ func (t *theme) renderDetail(p *view.Panel, ds *detailState, interval string, w,
 	}
 
 	chartH := max(3, h-len(out)-len(bottom)-2)
+	if ds.chartRows > 0 {
+		chartH = ds.chartRows
+	}
 	const axisW = 10
 	cw := w - axisW - 3
 	vals := ln.Ring.Values()

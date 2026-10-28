@@ -73,13 +73,13 @@ type Frame struct {
 	Source   string    `json:"source"`
 	Interval float64   `json:"interval"` // seconds
 	At       int64     `json:"at"`       // unix ms of the latest scrape
-	Took     string    `json:"took"`
+	Took     string    `json:"took,omitempty"`
 	Err      string    `json:"err,omitempty"`
 	Metrics  int       `json:"metrics"`
 	Series   int       `json:"series"`
 	Hidden   int       `json:"hidden"`
 	Scrapes  int       `json:"scrapes"`
-	Names    []string  `json:"names"` // for filter completion
+	Names    []string  `json:"names,omitempty"` // for filter completion
 	Sections []Section `json:"sections"`
 }
 
@@ -394,4 +394,24 @@ func detail(p *view.Panel, interval time.Duration, at time.Time, now time.Time) 
 		d.Series = append(d.Series, ds)
 	}
 	return d
+}
+
+// Document is a frame plus the full details of chosen panels: what
+// promtop render -format json writes for bots and pipelines.
+type Document struct {
+	Frame
+	Details []Detail `json:"details,omitempty"`
+}
+
+// Snapshot builds a document from a store: the cards of secs and, for
+// each panel in details, all of its series.
+func Snapshot(st *store.Store, secs []*view.Section, details []*view.Panel, interval time.Duration, at, now time.Time) Document {
+	doc := Document{Frame: buildFrame(st, secs, now)}
+	doc.Interval = interval.Seconds()
+	doc.At = at.UnixMilli()
+	doc.Names = nil // the page's filter completion; noise in a document
+	for _, p := range details {
+		doc.Details = append(doc.Details, detail(p, interval, at, now))
+	}
+	return doc
 }

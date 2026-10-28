@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Regenerates docs/*.png and docs/promtop.gif from the bundled demo.
+# Regenerates docs/*.png and docs/promtop.gif from the bundled demo: terminal
+# frames, the web dashboard and a promtop render snapshot.
 # Needs Google Chrome (or Chromium) and ffmpeg.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -12,6 +13,15 @@ go build -o "$work/demo" ./examples/demo
 "$work/demo" -addr 127.0.0.1:18080 >/dev/null 2>&1 &
 demo=$!
 until curl -sf http://127.0.0.1:18080/metrics >/dev/null; do sleep 0.2; done
+
+# promtop render itself, sampling while the terminal frames are made.
+mkdir -p docs
+go build -o "$work/promtop" .
+"$work/promtop" render -for 40s -i 1s -title "Demo service" \
+	-m 'demo_http_request_duration_seconds' -m 'demo_dependency_up' -m 'demo_circuit_breaker' \
+	-m 'demo_db_pool_*' -m 'demo_disk_*' -m 'demo_session_store_bytes' \
+	-o docs/render.png 127.0.0.1:18080 &
+render=$!
 
 PROMTOP_SHOTS="$work/frames" PROMTOP_SHOTS_TARGET=127.0.0.1:18080 \
 	go test ./internal/ui -run Screenshots -count=1
@@ -26,15 +36,15 @@ shot() {
 		--screenshot="$2" "file://$1" >/dev/null 2>&1
 }
 
-mkdir -p docs
 for f in grid detail-histogram detail-usage help; do
 	shot "$work/frames/$f.html" "docs/$f.png" 2
 done
 for f in "$work"/frames/anim-*.html; do
 	shot "$f" "${f%.html}.png" 1
 done
+wait "$render"
+
 # The web dashboard, after some history has built up.
-go build -o "$work/promtop" .
 BROWSER=true "$work/promtop" -web -web-addr 127.0.0.1:18090 -i 1s 127.0.0.1:18080 2>/dev/null &
 web=$!
 trap 'kill "$demo" "$web" 2>/dev/null || true; rm -rf "$work"' EXIT

@@ -88,7 +88,7 @@ type node struct {
 // Build turns the store into dashboard sections.
 func Build(st *store.Store, opt Options) []*Section {
 	panels := make([]*Panel, 0, len(st.Families))
-	limits := map[*store.Family]bool{}
+	limits := map[*store.Family]string{} // limit family → its usage panel
 	for _, f := range st.Families {
 		if len(f.Live()) == 0 || headerOnly[f.Name] {
 			continue
@@ -98,7 +98,7 @@ func Build(st *store.Store, opt Options) []*Section {
 			continue
 		}
 		if p.Limit != nil {
-			limits[p.Limit] = true
+			limits[p.Limit] = p.Name()
 		}
 		panels = append(panels, p)
 	}
@@ -117,7 +117,11 @@ func Build(st *store.Store, opt Options) []*Section {
 		if opt.Filter != nil && !opt.Filter.MatchString(p.Name()) {
 			continue
 		}
-		if !opt.ShowAll && opt.Filter == nil && (p.Noise || limits[p.Family] || idle(p)) {
+		// A limit shown inside a visible usage panel is redundant, filter or
+		// not; noise and idle metrics stay visible when they were filtered for.
+		usage, isLimit := limits[p.Family]
+		merged := isLimit && (opt.Filter == nil || opt.Filter.MatchString(usage))
+		if !opt.ShowAll && (merged || opt.Filter == nil && (p.Noise || idle(p))) {
 			n.hidden = append(n.hidden, p)
 			continue
 		}
@@ -133,7 +137,7 @@ func Build(st *store.Store, opt Options) []*Section {
 			}
 			sort.SliceStable(n.panels, func(i, j int) bool { return n.panels[i].Priority < n.panels[j].Priority })
 			sec.Panels = n.panels
-			if opt.Filter == nil {
+			if opt.Filter == nil || opt.GroupFiltered {
 				sec.Panels = group(n, sec.Title)
 			}
 			if len(sec.Panels) > 0 || (sec.Hidden > 0 && opt.Filter == nil) {
