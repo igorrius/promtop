@@ -36,6 +36,59 @@ browser (`BROWSER=true` just prints the URL).
 
 ![promtop web dashboard on the bundled demo](docs/web.png)
 
+## Snapshots for chats, bots and reports
+
+`promtop render` reads the metrics once and draws them into a file — PNG or SVG to send to a
+Telegram chat or attach to a report, JSON for a bot that wants the numbers, or text. A pipeline or
+an AI agent scrapes, looks at the data and sends a picture people can read at a glance.
+
+```sh
+promtop render -o dash.png 9100                       # the whole dashboard
+promtop render -m node_load1 -for 1m -o load.svg 9100 # one metric: its detail chart
+promtop render -m 'battery_*' -m 'inverter_*' -title Inverter -o - 192.168.1.50:9100 \
+  | curl -sF chat_id="$CHAT" -F photo=@- "https://api.telegram.org/bot$TOKEN/sendPhoto"
+promtop render -m 'battery_*' -format json 192.168.1.50:9100   # the data behind the picture
+```
+
+![promtop render: a grid snapshot of the demo](docs/render.png)
+
+**What is drawn.** `-m glob` (repeatable) and `-f regex` select metrics, `-l` selects series with
+Prometheus-style label matchers (`mount=/data`, `sensor=~kitchen.*`, `dev!=lo`). With one metric
+selected you get its detail view — big chart, bucket distribution, every series — otherwise the
+grid; `-view grid|detail` forces either.
+
+**History.** A single read has no history: promtop scrapes twice, `-i` apart, so rates have a
+value, and `-for 1m` samples longer before drawing. For hours or days without a Prometheus server,
+let cron collect samples into a small state file and draw from it:
+
+```sh
+# crontab: a sample every 5 minutes, the last 300 kept (25 hours)
+*/5 * * * *  promtop record -state ~/.cache/inverter.state -m 'battery_*' 192.168.1.50:9100
+
+# whenever you want the picture
+promtop render -state ~/.cache/inverter.state -m 'battery_*' -o battery.png 192.168.1.50:9100
+```
+
+`render -state` adds its own scrape to the file (one that comes right after the cron run replaces
+the cron sample, so rates do not cover a few seconds); `-offline` draws the file without scraping.
+The file stores only the selected metrics, so select the limit of a usage bar too
+(`-m 'node_filesystem_*'`, not just `*_avail_bytes`).
+
+| Flag | Meaning |
+|------|---------|
+| `-o file` | output, `-` for stdout (the default); the extension picks the format |
+| `-format f` | `png`, `svg`, `json`, `txt` or `ansi` |
+| `-m glob`, `-f regex`, `-l matcher` | select metrics and series |
+| `-view v` | `auto` (details for one metric), `grid` or `detail` |
+| `-for d`, `-i d` | sample for `d`, every `-i` |
+| `-state file`, `-keep n`, `-offline` | draw a history file (and add to it) |
+| `-title t`, `-theme dark\|light` | header title, colours |
+| `-width n`, `-height n`, `-scale x` | width in cells (default 90: two columns), detail chart rows, pixel scale (default 2) |
+| `-style s` | picture style; `terminal` for now — the same panels as the terminal UI |
+
+Images are drawn in pure Go with an embedded DejaVu Sans Mono font; box drawing, bars and braille
+charts are geometry, so they join up at any scale. No browser, no server.
+
 ## Install
 
 ```sh
@@ -126,6 +179,8 @@ wheel, right-click to go back.
 -web-addr addr    listen address for -web (default 127.0.0.1:0, a free local port)
 ```
 
+`promtop render -h` and `promtop record -h` list the flags of the snapshot commands.
+
 ## Try it
 
 ```sh
@@ -151,6 +206,12 @@ make screenshots # docs/*.png and docs/promtop.gif from the demo (needs Chrome a
 
 Releases are built by GoReleaser in CI: push a `v*` tag and the release with all archives,
 packages and checksums appears on GitHub. Every CI run also uploads a snapshot build as an artifact.
+
+Do not publish the release in the GitHub UI first: the repository uses immutable releases, and a
+published release cannot receive its files any more. To write the notes by hand, save the release
+as a **draft** for the tag; GoReleaser fills that draft and publishes it.
+
+What comes next is in [ROADMAP.md](ROADMAP.md).
 
 ## License
 

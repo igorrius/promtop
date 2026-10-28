@@ -106,6 +106,7 @@ func (t *theme) spark(k view.Kind, vals []float64, w, h int, lo, hi float64) []s
 	if w <= 0 || h <= 0 {
 		return nil
 	}
+	vals = t.fitTo(vals, w)
 	lv := levels(vals, w, h, lo, hi)
 	rows := make([]string, h)
 	for r := range h {
@@ -199,7 +200,7 @@ func braille(vals []float64, w, h int, lo, hi float64) [][]uint8 {
 // brailleRows draws a braille chart with a vertical gradient (brighter at
 // the top) and a faint dotted grid line every quarter of the height.
 func (t *theme) brailleRows(k view.Kind, vals []float64, w, h int, lo, hi float64) []string {
-	grid := braille(vals, w, h, lo, hi)
+	grid := braille(t.fitTo(vals, 2*w), w, h, lo, hi)
 	rows := make([]string, len(grid))
 	for r, cells := range grid {
 		var b strings.Builder
@@ -278,4 +279,31 @@ func (t *theme) hbar(f float64, w int, fill string) string {
 		b.WriteString(reset)
 	}
 	return b.String()
+}
+
+// fitTo stretches or squeezes a history to n points when the theme draws
+// snapshots: a picture shows the whole window across its width, while the
+// live view scrolls one sample per column.
+func (t *theme) fitTo(vals []float64, n int) []float64 {
+	if !t.fit || len(vals) < 4 || len(vals) == n || n < 2 {
+		return vals
+	}
+	out := make([]float64, n)
+	last := float64(len(vals) - 1)
+	for i := range out {
+		pos := float64(i) * last / float64(n-1)
+		j := int(pos)
+		if j >= len(vals)-1 {
+			out[i] = vals[len(vals)-1]
+			continue
+		}
+		a, b, f := vals[j], vals[j+1], pos-float64(j)
+		switch {
+		case math.IsNaN(a) || math.IsNaN(b):
+			out[i] = math.NaN()
+		default:
+			out[i] = a + (b-a)*f
+		}
+	}
+	return out
 }

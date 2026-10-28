@@ -148,7 +148,7 @@ func (t *theme) usageRows(p *view.Panel, live []*store.Series, cw int) []string 
 		out = append(out, fit(lbl, lw)+" "+t.bold(t.tone(view.UsageTone(f)), rpad(view.Percent(f*100), pctW))+" "+t.hbar(f, bw, t.usageAt(f)))
 	}
 	if more > 0 {
-		out = append(out, t.paint(t.dim, "+"+itoa(more)+" more · enter for all"))
+		out = append(out, t.moreRows(more))
 	}
 	return out
 }
@@ -222,7 +222,7 @@ func (t *theme) multiContent(p *view.Panel, live []*store.Series, cw int) []stri
 		out = append(out, row)
 	}
 	if more > 0 {
-		out = append(out, t.paint(t.dim, "+"+itoa(more)+" more · enter for all"))
+		out = append(out, t.moreRows(more))
 	}
 	return out
 }
@@ -341,7 +341,7 @@ func (t *theme) infoContent(p *view.Panel, live []*store.Series, cw int) []strin
 	}
 	if len(out) > contentRows {
 		out = out[:contentRows-1]
-		out = append(out, t.paint(t.dim, "… enter for all"))
+		out = append(out, t.moreRows(0))
 	}
 	if len(out) == 0 {
 		out = append(out, t.paint(t.dim, "value "+p.Format(live[0].Raw)))
@@ -360,11 +360,25 @@ func (t *theme) timestampContent(p *view.Panel, live []*store.Series, cw int, no
 	var out []string
 	for i, s := range live {
 		if i == contentRows-1 && len(live) > contentRows {
-			out = append(out, t.paint(t.dim, "+"+itoa(len(live)-i)+" more · enter for all"))
+			out = append(out, t.moreRows(len(live)-i))
 			break
 		}
 		age := p.Age(s, now)
 		out = append(out, fit(view.RowLabel(p.Family, s), cw-vlen(age)-1)+" "+t.bold(t.value, age))
 	}
 	return out
+}
+
+// moreRows notes rows a panel could not show (n = 0: an unknown number). Live
+// views point at the details; a snapshot has no keys to press.
+func (t *theme) moreRows(n int) string {
+	switch {
+	case n > 0 && t.fit:
+		return t.paint(t.dim, "+"+itoa(n)+" more")
+	case n > 0:
+		return t.paint(t.dim, "+"+itoa(n)+" more · enter for all")
+	case t.fit:
+		return t.paint(t.dim, "…")
+	}
+	return t.paint(t.dim, "… enter for all")
 }

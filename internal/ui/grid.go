@@ -52,7 +52,7 @@ func (t *theme) buildGrid(sections []*view.Section, w int) layout {
 	for _, sec := range sections {
 		headLine := len(lay.lines)
 		head := " " + t.bold(t.section, "▍"+sec.Title)
-		if sec.Hidden > 0 {
+		if sec.Hidden > 0 && !t.fit { // a snapshot has no key to show them
 			head += t.paint(t.faint, "  "+itoa(sec.Hidden)+" hidden")
 		}
 		text(cut(head, w))

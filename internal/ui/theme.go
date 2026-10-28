@@ -17,7 +17,9 @@ const rampSteps = 8
 // supports, or strip them for NO_COLOR.
 type theme struct {
 	dark bool
+	fit  bool // stretch histories across charts (snapshots)
 
+	bg, text                                          color.Color // for images; terminals use their own
 	accent, border, title, dim, faint, value, section color.Color
 	ok, warn, err, pillFg                             color.Color
 	kinds                                             map[view.Kind]color.Color
@@ -32,6 +34,8 @@ func newTheme(dark bool) *theme {
 	c := lipgloss.Color
 	t := &theme{
 		dark:    dark,
+		bg:      ld(c("#FFFFFF"), c("#1A1B26")),
+		text:    ld(c("#343B58"), c("#C0CAF5")),
 		accent:  ld(c("#2E59C9"), c("#7AA2F7")),
 		border:  ld(c("#B8BDD1"), c("#4B5274")),
 		title:   ld(c("#343B58"), c("#C0CAF5")),
