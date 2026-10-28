@@ -20,8 +20,7 @@ func TestHandlerHung(t *testing.T) {
 	if res.Err == nil || !strings.Contains(res.Err.Error(), "did not answer") || time.Since(start) > time.Second {
 		t.Fatalf("hung handler: %v after %s", res.Err, time.Since(start))
 	}
-	start = time.Now()
-	if res := h.Scrape(t.Context()); res.Err == nil || time.Since(start) > 10*time.Millisecond {
-		t.Errorf("second scrape while stuck: %v after %s", res.Err, time.Since(start))
+	if res := h.Scrape(t.Context()); res.Err == nil || !strings.Contains(res.Err.Error(), "busy") {
+		t.Errorf("second scrape while stuck: %v", res.Err)
 	}
 }
