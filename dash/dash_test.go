@@ -34,14 +34,23 @@ func get(h http.Handler, path, remote string) *httptest.ResponseRecorder {
 }
 
 func TestServe(t *testing.T) {
-	d := New(metrics(nil), Interval(fast), Title("orders"))
+	// The first scrape is slow, as on a loaded CI runner: the stream starts
+	// with an empty frame and the data follows.
+	var slow sync.Once
+	d := New(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		slow.Do(func() { time.Sleep(100 * time.Millisecond) })
+		metrics(nil).ServeHTTP(w, r)
+	}), Interval(fast), Title("orders"))
 	defer func() { _ = d.Close() }()
 	mux := http.NewServeMux()
 	mux.Handle("/webmetrics/", d)
 	srv := httptest.NewServer(mux) // a loopback client with a loopback Host
 	defer srv.Close()
 
-	res, err := http.Get(srv.URL + "/webmetrics/api/events")
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/webmetrics/api/events", nil)
+	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,20 +58,31 @@ func TestServe(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("events: %d", res.StatusCode)
 	}
-	line, err := bufio.NewReader(res.Body).ReadString('\n')
-	if err != nil {
-		t.Fatal(err)
+	// Read frames until one carries the metrics; the stream ends at the deadline.
+	sc := bufio.NewScanner(res.Body)
+	sc.Buffer(nil, 1<<20)
+	var last string
+	for sc.Scan() {
+		line, ok := strings.CutPrefix(sc.Text(), "data: ")
+		if !ok {
+			continue
+		}
+		last = line
+		var fr struct {
+			Source  string `json:"source"`
+			Scrapes int    `json:"scrapes"`
+		}
+		if err := json.Unmarshal([]byte(line), &fr); err != nil {
+			t.Fatal(err)
+		}
+		if fr.Source != "orders" {
+			t.Fatalf("source %q", fr.Source)
+		}
+		if fr.Scrapes > 0 && strings.Contains(line, `"app_up"`) {
+			return
+		}
 	}
-	var fr struct {
-		Source string   `json:"source"`
-		Names  []string `json:"names"`
-	}
-	if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &fr); err != nil {
-		t.Fatal(err)
-	}
-	if fr.Source != "orders" || !strings.Contains(line, `"app_up"`) {
-		t.Errorf("frame: %s", line)
-	}
+	t.Errorf("no frame with app_up before the deadline; last: %s", last)
 }
 
 func TestDefaultDenies(t *testing.T) {
@@ -94,19 +114,22 @@ func TestAllowNilKeepsLocalhost(t *testing.T) {
 }
 
 func TestUserAgent(t *testing.T) {
-	var mu sync.Mutex
-	var ua string
+	got := make(chan string, 1)
 	d := New(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		ua = r.Header.Get("User-Agent")
-		mu.Unlock()
+		select {
+		case got <- r.Header.Get("User-Agent"):
+		default:
+		}
 		_, _ = io.WriteString(w, "up 1\n")
 	}), Interval(fast))
-	_ = d.Close() // New has scraped at least once by the time Close returns
-	mu.Lock()
-	defer mu.Unlock()
-	if !strings.HasPrefix(ua, "promtop-dash/") {
-		t.Errorf("User-Agent %q", ua)
+	defer func() { _ = d.Close() }()
+	select {
+	case ua := <-got:
+		if !strings.HasPrefix(ua, "promtop-dash/") {
+			t.Errorf("User-Agent %q", ua)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("metrics handler never called")
 	}
 }
 
