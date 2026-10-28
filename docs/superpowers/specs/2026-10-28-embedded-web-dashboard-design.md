@@ -28,9 +28,9 @@ mux.Handle("/metrics", promhttp.Handler())
 // HandlerFor without HandlerOpts.Registry: no promhttp_metric_handler_* self-instrumentation,
 // so the dashboard's polling does not show up in the counters real scrapers see.
 src := promhttp.HandlerFor(prometheus.DefaultGatherer, promhttp.HandlerOpts{})
-d := dash.New(src, dash.Title("orders-svc"))
-defer d.Close()
-mux.Handle("/webmetrics/", d)
+mux.Handle("/webmetrics/", dash.New(src, dash.Title("orders-svc")))
+// Close on graceful shutdown (not defer in a router-building function):
+// srv.RegisterOnShutdown(func() { _ = d.Close() })
 ```
 
 Open `http://localhost:8080/webmetrics/` and see the dashboard.

@@ -2,6 +2,7 @@ package dash
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -147,5 +148,29 @@ func TestCloseWithHungHandler(t *testing.T) {
 	case <-closed:
 	case <-time.After(2 * time.Second):
 		t.Fatal("Close waits for a hung metrics handler")
+	}
+}
+
+// Closing the dashboard on shutdown ends its event streams, so
+// http.Server.Shutdown does not wait for them.
+func TestCloseOnShutdown(t *testing.T) {
+	d := New(metrics(nil), Interval(fast))
+	mux := http.NewServeMux()
+	mux.Handle("/webmetrics/", d)
+	srv := httptest.NewUnstartedServer(mux)
+	srv.Config.RegisterOnShutdown(func() { _ = d.Close() })
+	srv.Start()
+	res, err := http.Get(srv.URL + "/webmetrics/api/events")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	if _, err := bufio.NewReader(res.Body).ReadString('\n'); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	if err := srv.Config.Shutdown(ctx); err != nil {
+		t.Errorf("Shutdown with an open dashboard: %v", err)
 	}
 }

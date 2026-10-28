@@ -3,6 +3,7 @@ package dash_test
 import (
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/igorrius/promtop/dash"
 )
@@ -17,6 +18,9 @@ func ExampleNew() {
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", metrics)
 	d := dash.New(metrics, dash.Title("orders-svc"))
-	defer func() { _ = d.Close() }()
 	mux.Handle("/webmetrics/", d) // http://localhost:8080/webmetrics/
+
+	srv := &http.Server{Addr: "localhost:8080", Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	srv.RegisterOnShutdown(func() { _ = d.Close() }) // open tabs would hold up Shutdown
+	_ = srv                                          // srv.ListenAndServe()
 }

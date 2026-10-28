@@ -6,9 +6,8 @@
 //
 //	// HandlerFor without a Registry in HandlerOpts does not count its own
 //	// calls, so the dashboard's polling stays out of what scrapers see.
-//	d := dash.New(promhttp.HandlerFor(prometheus.DefaultGatherer, promhttp.HandlerOpts{}))
-//	defer d.Close()
-//	mux.Handle("/webmetrics/", d)
+//	metrics := promhttp.HandlerFor(prometheus.DefaultGatherer, promhttp.HandlerOpts{})
+//	mux.Handle("/webmetrics/", dash.New(metrics))
 //
 // The metrics handler is called in-process every interval; anything that
 // serves the Prometheus text format works (client_golang, OpenTelemetry's
@@ -123,6 +122,10 @@ func (d *Dashboard) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // Close stops reading metrics and ends open event streams. Later requests
 // get 503. It always returns nil and may be called more than once.
+//
+// A dashboard normally lives as long as the process. Call Close on graceful
+// shutdown, e.g. from http.Server.RegisterOnShutdown, so open browser tabs
+// do not keep Shutdown waiting.
 func (d *Dashboard) Close() error {
 	d.closed.Store(true)
 	d.srv.Close()

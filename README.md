@@ -50,9 +50,7 @@ go get github.com/igorrius/promtop/dash
 mux.Handle("/metrics", promhttp.Handler())
 
 metrics := promhttp.HandlerFor(prometheus.DefaultGatherer, promhttp.HandlerOpts{})
-d := dash.New(metrics, dash.Title("orders-svc"))
-defer d.Close()
-mux.Handle("/webmetrics/", d) // http://localhost:8080/webmetrics/
+mux.Handle("/webmetrics/", dash.New(metrics, dash.Title("orders-svc"))) // http://localhost:8080/webmetrics/
 ```
 
 The dashboard calls the metrics handler in-process every interval: no network, no port, no
@@ -85,7 +83,18 @@ if os.Getenv("DEBUG_DASH") != "" {
 
 Options: `dash.Interval` (default 2s), `dash.History` (samples kept per series, default 300),
 `dash.Filter` (initial filter regex; one in the page URL wins), `dash.Title` (page header, default
-"this process"). `Close` stops polling. The package needs Go 1.27.3 or later. A runnable service
+"this process"). The dashboard lives as long as the process, like `/metrics`. `Close` stops polling
+and ends open browser streams; hook it to graceful shutdown, otherwise `Shutdown` waits for an open
+tab until its context expires:
+
+```go
+d := dash.New(metrics)
+mux.Handle("/webmetrics/", d)
+srv.RegisterOnShutdown(func() { _ = d.Close() })
+```
+
+Do not `defer d.Close()` in a function that only builds the router: the dashboard would be closed
+before the first request and answer 503. The package needs Go 1.27.3 or later. A runnable service
 with client_golang is in [`examples/embedded`](examples/embedded) (`make embedded`).
 
 ## Snapshots for chats, bots and reports
