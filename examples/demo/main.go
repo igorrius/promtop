@@ -55,6 +55,9 @@ type state struct {
 	jobSum    float64
 	cacheHits float64
 	cacheMiss float64
+	poolBusy  float64
+	diskUsed  float64 // bytes written to /var/lib/demo since start
+	spool     float64
 }
 
 var paths = []string{"/api/orders", "/api/users", "/api/search", "/healthz"}
@@ -67,7 +70,7 @@ func (s *state) tick(dt float64) {
 	for _, p := range paths {
 		base := map[string]float64{"/api/orders": 40, "/api/users": 25, "/api/search": 15, "/healthz": 2}[p]
 		n := base * load * dt
-		for i := 0; i < int(n)+1; i++ {
+		for range int(n) + 1 {
 			code := "200"
 			switch r := rand.Float64(); {
 			case r < 0.02*load:
@@ -97,7 +100,7 @@ func (s *state) tick(dt float64) {
 	s.inflight = math.Max(0, 8*load+rand.NormFloat64()*2)
 	s.queue = math.Max(0, 30*math.Sin(t/45)+30+rand.NormFloat64()*3)
 	s.cpu += dt * 0.35 * load
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		v := rand.ExpFloat64() * 0.3
 		s.jobLat = append(s.jobLat, v)
 		if len(s.jobLat) > 500 {
@@ -108,6 +111,9 @@ func (s *state) tick(dt float64) {
 	}
 	s.cacheHits += 90 * load * dt
 	s.cacheMiss += 10 * load * dt * (1 + 0.5*math.Sin(t/10))
+	s.poolBusy = math.Min(64, math.Max(1, s.poolBusy+(28*load-s.poolBusy)*0.3+4*rand.NormFloat64()))
+	s.diskUsed += 3e6 * load * dt
+	s.spool = math.Max(0, s.spool+(2e6*load-s.spool)*0.2+5e5*rand.NormFloat64())
 }
 
 func (s *state) write(w *strings.Builder) {
@@ -171,6 +177,71 @@ func (s *state) write(w *strings.Builder) {
 	fmt.Fprintln(w, "# TYPE demo_cache_requests_total counter")
 	fmt.Fprintf(w, "demo_cache_requests_total{result=\"hit\"} %g\n", s.cacheHits)
 	fmt.Fprintf(w, "demo_cache_requests_total{result=\"miss\"} %g\n", s.cacheMiss)
+	// Health flags: kafka drops out for a few seconds every half minute.
+	t := time.Since(s.start).Seconds()
+	kafka := 1
+	if math.Mod(t, 30) > 24 {
+		kafka = 0
+	}
+	fmt.Fprintln(w, "# HELP demo_dependency_up Whether a downstream dependency answers its health check.")
+	fmt.Fprintln(w, "# TYPE demo_dependency_up gauge")
+	fmt.Fprintln(w, `demo_dependency_up{dependency="postgres"} 1`)
+	fmt.Fprintln(w, `demo_dependency_up{dependency="redis"} 1`)
+	fmt.Fprintf(w, "demo_dependency_up{dependency=\"kafka\"} %d\n", kafka)
+	fmt.Fprintln(w, "# HELP demo_circuit_breaker Circuit breaker state towards the payment provider.")
+	fmt.Fprintln(w, "# TYPE demo_circuit_breaker stateset")
+	breaker := map[string]int{"closed": 1, "half_open": 0, "open": 0}
+	if kafka == 0 {
+		breaker = map[string]int{"closed": 0, "half_open": 0, "open": 1}
+	}
+	for _, st := range []string{"closed", "half_open", "open"} {
+		fmt.Fprintf(w, "demo_circuit_breaker{demo_circuit_breaker=%q} %d\n", st, breaker[st])
+	}
+
+	// A connection pool and disks against their limits.
+	fmt.Fprintln(w, "# HELP demo_db_pool_active_connections Connections in use.")
+	fmt.Fprintln(w, "# TYPE demo_db_pool_active_connections gauge")
+	fmt.Fprintf(w, "demo_db_pool_active_connections %g\n", math.Round(s.poolBusy))
+	fmt.Fprintln(w, "# HELP demo_db_pool_max_connections Pool size.")
+	fmt.Fprintln(w, "# TYPE demo_db_pool_max_connections gauge")
+	fmt.Fprintln(w, "demo_db_pool_max_connections 64")
+	disks := []struct {
+		mount      string
+		size, used float64
+	}{{"/", 50e9, 31e9}, {"/var/lib/demo", 200e9, 172e9 + s.diskUsed}, {"/tmp", 8e9, 0.6e9 + s.spool*40}}
+	fmt.Fprintln(w, "# HELP demo_disk_avail_bytes Free space available to the service.")
+	fmt.Fprintln(w, "# TYPE demo_disk_avail_bytes gauge")
+	for _, d := range disks {
+		fmt.Fprintf(w, "demo_disk_avail_bytes{mount=%q} %g\n", d.mount, math.Max(0, d.size-d.used))
+	}
+	fmt.Fprintln(w, "# HELP demo_disk_size_bytes Size of the filesystem.")
+	fmt.Fprintln(w, "# TYPE demo_disk_size_bytes gauge")
+	for _, d := range disks {
+		fmt.Fprintf(w, "demo_disk_size_bytes{mount=%q} %g\n", d.mount, d.size)
+	}
+
+	// Scalar memory gauges of one unit: promtop packs them into one panel.
+	for _, m := range []struct {
+		name string
+		v    float64
+	}{
+		{"cache_memory", 180e6 + 20e6*math.Sin(t/15)},
+		{"session_store", 42e6 + 1e5*t},
+		{"upload_spool", s.spool},
+		{"template_cache", 6.5e6},
+	} {
+		fmt.Fprintf(w, "# HELP demo_%s_bytes Memory held by the %s.\n", m.name, strings.ReplaceAll(m.name, "_", " "))
+		fmt.Fprintf(w, "# TYPE demo_%s_bytes gauge\n", m.name)
+		fmt.Fprintf(w, "demo_%s_bytes %g\n", m.name, math.Round(m.v))
+	}
+
+	fmt.Fprintln(w, "# HELP demo_last_deploy_timestamp_seconds When the running version was deployed.")
+	fmt.Fprintln(w, "# TYPE demo_last_deploy_timestamp_seconds gauge")
+	fmt.Fprintf(w, "demo_last_deploy_timestamp_seconds %d\n", s.start.Add(-26*time.Hour-40*time.Minute).Unix())
+	fmt.Fprintln(w, "# HELP demo_tls_cert_expiry_timestamp_seconds When the serving certificate expires.")
+	fmt.Fprintln(w, "# TYPE demo_tls_cert_expiry_timestamp_seconds gauge")
+	fmt.Fprintf(w, "demo_tls_cert_expiry_timestamp_seconds %d\n", s.start.Add(23*24*time.Hour+5*time.Hour).Unix())
+
 	fmt.Fprintln(w, "# HELP demo_build_info Build information.")
 	fmt.Fprintln(w, "# TYPE demo_build_info gauge")
 	fmt.Fprintf(w, "demo_build_info{version=\"1.4.2\",revision=\"a1b2c3d\",goversion=%q} 1\n", runtime.Version())
@@ -192,7 +263,7 @@ func (s *state) write(w *strings.Builder) {
 	fmt.Fprintln(w, "# HELP go_gc_duration_seconds GC pause durations.")
 	fmt.Fprintln(w, "# TYPE go_gc_duration_seconds summary")
 	pauses := make([]float64, 0, 256)
-	for i := 0; i < int(min(ms.NumGC, 256)); i++ {
+	for i := range int(min(ms.NumGC, 256)) {
 		pauses = append(pauses, float64(ms.PauseNs[i])/1e9)
 	}
 	sort.Float64s(pauses)
@@ -234,14 +305,15 @@ func main() {
 			last = now
 		}
 	}()
-	http.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) {
 		var b strings.Builder
 		s.write(&b)
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 		_, _ = w.Write([]byte(b.String()))
 	})
 	log.Printf("demo metrics on http://localhost%s/metrics", *addr)
-	if err := http.ListenAndServe(*addr, nil); err != nil {
+	srv := &http.Server{Addr: *addr, ReadHeaderTimeout: 5 * time.Second}
+	if err := srv.ListenAndServe(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

@@ -11,6 +11,7 @@ import (
 // Unit is the physical unit inferred from a metric name.
 type Unit int
 
+// Units promtop formats specially.
 const (
 	UnitNone Unit = iota
 	UnitBytes
@@ -20,34 +21,81 @@ const (
 	UnitOther   // a named unit kept as a suffix (celsius, volts, ...)
 )
 
-var otherUnits = map[string]string{
-	"celsius": "°C", "volts": "V", "amperes": "A", "watts": "W",
-	"joules": "J", "meters": "m", "hertz": "Hz", "grams": "g",
+// unitDef describes a unit suffix; scale converts a raw value into the base
+// unit (milliseconds → seconds).
+type unitDef struct {
+	unit  Unit
+	sym   string
+	scale float64
 }
 
-// UnitOf infers a unit from the metric name (Prometheus naming conventions).
-// It returns the unit and, for UnitOther, its symbol.
-func UnitOf(name string) (Unit, string) {
+// unitTokens maps the last token of a metric name (or an OpenMetrics UNIT)
+// to its unit. Prometheus recommends base units, but exporters in the wild
+// also use milliseconds, kilobytes and friends.
+var unitTokens = map[string]unitDef{
+	"bytes":        {UnitBytes, "", 1},
+	"kilobytes":    {UnitBytes, "", 1e3},
+	"megabytes":    {UnitBytes, "", 1e6},
+	"gigabytes":    {UnitBytes, "", 1e9},
+	"kibibytes":    {UnitBytes, "", 1 << 10},
+	"mebibytes":    {UnitBytes, "", 1 << 20},
+	"gibibytes":    {UnitBytes, "", 1 << 30},
+	"seconds":      {UnitSeconds, "", 1},
+	"milliseconds": {UnitSeconds, "", 1e-3},
+	"ms":           {UnitSeconds, "", 1e-3},
+	"microseconds": {UnitSeconds, "", 1e-6},
+	"nanoseconds":  {UnitSeconds, "", 1e-9},
+	"minutes":      {UnitSeconds, "", 60},
+	"hours":        {UnitSeconds, "", 3600},
+	"days":         {UnitSeconds, "", 86400},
+	"ratio":        {UnitRatio, "", 1},
+	"percent":      {UnitPercent, "", 1},
+	"percentage":   {UnitPercent, "", 1},
+	"celsius":      {UnitOther, "°C", 1},
+	"kelvin":       {UnitOther, "K", 1},
+	"volts":        {UnitOther, "V", 1},
+	"amperes":      {UnitOther, "A", 1},
+	"watts":        {UnitOther, "W", 1},
+	"joules":       {UnitOther, "J", 1},
+	"meters":       {UnitOther, "m", 1},
+	"hertz":        {UnitOther, "Hz", 1},
+	"grams":        {UnitOther, "g", 1},
+	"bits":         {UnitOther, "b", 1},
+	"pascals":      {UnitOther, "Pa", 1},
+	"rpm":          {UnitOther, "rpm", 1},
+}
+
+// metaUnits maps OpenMetrics / UCUM unit annotations that differ from the
+// name tokens above.
+var metaUnits = map[string]string{"s": "seconds", "by": "bytes", "%": "percent", "1": "ratio", "cel": "celsius"}
+
+var nameSuffixes = []string{"_total", "_count", "_sum", "_bucket", "_created"}
+
+// UnitOf infers a unit from the metric name (Prometheus naming conventions),
+// falling back to a declared OpenMetrics unit. It returns the unit, the symbol
+// for UnitOther and the factor converting raw values into the unit.
+func UnitOf(name, meta string) (Unit, string, float64) {
 	n := name
-	for _, suf := range []string{"_total", "_count", "_sum", "_bucket", "_created"} {
+	for _, suf := range nameSuffixes {
 		n = strings.TrimSuffix(n, suf)
 	}
-	switch {
-	case strings.HasSuffix(n, "_bytes"):
-		return UnitBytes, ""
-	case strings.HasSuffix(n, "_seconds"):
-		return UnitSeconds, ""
-	case strings.HasSuffix(n, "_ratio"):
-		return UnitRatio, ""
-	case strings.HasSuffix(n, "_percent"), strings.HasSuffix(n, "_percentage"):
-		return UnitPercent, ""
+	if d, ok := unitTokens[strings.ToLower(lastToken(n))]; ok {
+		return d.unit, d.sym, d.scale
 	}
-	if i := strings.LastIndexByte(n, '_'); i >= 0 {
-		if sym, ok := otherUnits[n[i+1:]]; ok {
-			return UnitOther, sym
-		}
+	m := strings.ToLower(meta)
+	if alias, ok := metaUnits[m]; ok {
+		m = alias
 	}
-	return UnitNone, ""
+	if d, ok := unitTokens[m]; ok {
+		return d.unit, d.sym, d.scale
+	}
+	return UnitNone, "", 1
+}
+
+// unitToken reports whether tok is a unit suffix.
+func unitToken(tok string) bool {
+	_, ok := unitTokens[strings.ToLower(tok)]
+	return ok
 }
 
 // FormatValue renders v in the given unit. When rate is true the value is a

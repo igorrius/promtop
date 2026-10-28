@@ -1,17 +1,25 @@
-// Package ui implements the promtop terminal interface without third-party
-// dependencies: raw ANSI output, termios raw mode and SIGWINCH handling.
+// Package ui implements the promtop terminal interface on Bubble Tea and
+// Lip Gloss: the dashboard grid, the detail view and the --once snapshot.
 package ui
 
 import (
-	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
-	"unicode/utf8"
+
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
+	"github.com/charmbracelet/x/term"
 
 	"github.com/igorrius/promtop/internal/scrape"
 	"github.com/igorrius/promtop/internal/store"
@@ -30,12 +38,21 @@ type Config struct {
 	Out      io.Writer
 }
 
+// App is the Bubble Tea model.
 type App struct {
 	cfg      Config
+	ctx      context.Context
 	st       *store.Store
-	sty      style
+	th       *theme
+	keys     keyMap
+	help     help.Model
 	w, h     int
 	interval time.Duration
+
+	secs     []*view.Section
+	lay      layout
+	dirty    bool // sections must be rebuilt
+	families int  // family count the filter suggestions were built for
 
 	sel     int
 	selName string
@@ -43,13 +60,13 @@ type App struct {
 	detail  *view.Panel
 	ds      detailState
 
-	filterEdit bool
-	filterBuf  string
-	filter     *regexp.Regexp
-	filterErr  string
-	showAll    bool
-	paused     bool
-	help       bool
+	input     textinput.Model
+	filtering bool
+	filter    *regexp.Regexp
+	filterSrc string
+	showAll   bool
+	paused    bool
+	showHelp  bool
 
 	lastErr  error
 	lastDur  time.Duration
@@ -57,24 +74,58 @@ type App struct {
 	inflight bool
 }
 
+type (
+	scrapeMsg scrape.Result
+	tickMsg   struct{}
+)
+
+// New returns an app that has not scraped yet.
 func New(cfg Config) *App {
 	if cfg.Out == nil {
 		cfg.Out = os.Stdout
 	}
 	a := &App{
 		cfg:      cfg,
+		ctx:      context.Background(),
 		st:       store.New(cfg.History),
-		sty:      style{on: cfg.Color},
+		keys:     newKeyMap(),
+		help:     help.New(),
 		interval: cfg.Interval,
 		showAll:  cfg.ShowAll,
+		w:        120,
+		h:        40,
+		dirty:    true,
 	}
+	a.input = textinput.New()
+	a.input.Prompt = "/"
+	a.input.Placeholder = "regex over metric names"
+	a.input.ShowSuggestions = true
+	a.setTheme(true)
 	a.setFilter(cfg.Filter)
+	a.input.SetValue(cfg.Filter)
 	return a
 }
 
+func (a *App) setTheme(dark bool) {
+	a.th = newTheme(dark)
+	a.help.Styles = help.DefaultStyles(dark)
+	a.help.Styles.ShortKey = lipgloss.NewStyle().Foreground(a.th.accent).Bold(true)
+	a.help.Styles.FullKey = a.help.Styles.ShortKey
+	a.help.Styles.ShortDesc = lipgloss.NewStyle().Foreground(a.th.dim)
+	a.help.Styles.FullDesc = a.help.Styles.ShortDesc
+	a.help.Styles.ShortSeparator = lipgloss.NewStyle().Foreground(a.th.faint)
+	a.help.ShortSeparator = "  "
+	s := textinput.DefaultStyles(dark)
+	s.Focused.Prompt = lipgloss.NewStyle().Foreground(a.th.accent).Bold(true)
+	s.Focused.Suggestion = lipgloss.NewStyle().Foreground(a.th.faint)
+	s.Focused.Placeholder = lipgloss.NewStyle().Foreground(a.th.faint)
+	a.input.SetStyles(s)
+	a.dirty = true
+}
+
 func (a *App) setFilter(s string) {
-	a.filterBuf = s
-	a.filterErr = ""
+	a.dirty = true
+	a.filterSrc = s
 	if s == "" {
 		a.filter = nil
 		return
@@ -86,10 +137,6 @@ func (a *App) setFilter(s string) {
 	a.filter = re
 }
 
-func (a *App) sections() []*view.Section {
-	return view.Build(a.st, view.Options{ShowAll: a.showAll, Filter: a.filter})
-}
-
 func (a *App) ingest(r scrape.Result) {
 	a.lastDur, a.lastAt = r.Duration, r.At
 	if r.Err != nil {
@@ -98,7 +145,70 @@ func (a *App) ingest(r scrape.Result) {
 	}
 	a.lastErr = nil
 	a.st.Ingest(r.Families, r.At)
+	a.dirty = true
+	if n := len(a.st.Families); n != a.families {
+		a.families = n
+		names := make([]string, n)
+		for i, f := range a.st.Families {
+			names[i] = f.Name
+		}
+		a.input.SetSuggestions(names)
+	}
 }
+
+// refresh rebuilds sections and layout when needed and keeps the selection
+// on the same metric and inside the viewport.
+func (a *App) refresh() {
+	if a.dirty || a.lay.w != a.w {
+		if a.dirty {
+			a.secs = view.Build(a.st, view.Options{ShowAll: a.showAll, Filter: a.filter})
+			a.dirty = false
+		}
+		a.lay = a.th.buildGrid(a.secs, a.w)
+		if a.selName != "" {
+			for i, c := range a.lay.cells {
+				if c.panel.Name() == a.selName {
+					a.sel = i
+					break
+				}
+			}
+		}
+		if a.detail != nil {
+			a.detail = a.findPanel(a.detail)
+		}
+	}
+	a.sel = clamp(a.sel, len(a.lay.cells)-1)
+	body := a.bodyHeight()
+	if len(a.lay.cells) > 0 {
+		c := a.lay.cells[a.sel]
+		a.selName = c.panel.Name()
+		if c.top < a.scroll {
+			a.scroll = c.top
+		}
+		if c.line+PanelHeight > a.scroll+body {
+			a.scroll = c.line + PanelHeight - body
+		}
+	}
+	a.scroll = clamp(a.scroll, max(0, len(a.lay.lines)-body))
+}
+
+// findPanel returns the current version of panel p: the same name in the
+// fresh layout, or a reclassification of its family.
+func (a *App) findPanel(p *view.Panel) *view.Panel {
+	for _, c := range a.lay.cells {
+		if c.panel.Name() == p.Name() {
+			return c.panel
+		}
+	}
+	if f := a.st.Get(p.Name()); f != nil {
+		if np := view.Classify(f, a.st); np != nil {
+			return np
+		}
+	}
+	return p
+}
+
+func (a *App) bodyHeight() int { return max(1, a.h-2) }
 
 // RunOnce scrapes twice (so rates can be computed) and prints one frame.
 func (a *App) RunOnce(ctx context.Context) error {
@@ -117,239 +227,265 @@ func (a *App) RunOnce(ctx context.Context) error {
 			return a.lastErr
 		}
 	}
-	w := a.cfg.Width
-	if w <= 0 {
-		if tw, _, ok := termSize(int(os.Stdout.Fd())); ok {
-			w = tw
-		} else {
-			w = 120
+	a.w = a.cfg.Width
+	if a.w <= 0 {
+		a.w = 120
+		if f, ok := a.cfg.Out.(*os.File); ok {
+			if tw, _, err := term.GetSize(f.Fd()); err == nil && tw > 0 {
+				a.w = tw
+			}
 		}
 	}
-	a.w = w
-	lay := buildGrid(a.sections(), w, -1, time.Now(), a.sty)
-	bw := bufio.NewWriter(a.cfg.Out)
-	fmt.Fprintln(bw, a.header())
-	for _, l := range lay.lines {
-		fmt.Fprintln(bw, l)
+	a.refresh()
+	out := colorprofile.NewWriter(a.cfg.Out, os.Environ())
+	if !a.cfg.Color {
+		out.Profile = colorprofile.NoTTY
 	}
-	return bw.Flush()
-}
-
-type key struct {
-	name string // "up", "down", "enter", ... or "" for a rune
-	r    rune
+	lines := append([]string{a.header()}, a.th.render(a.lay, 0, len(a.lay.lines), -1, time.Now())...)
+	_, err := io.WriteString(out, strings.Join(lines, "\n")+"\n")
+	return err
 }
 
 // Run starts the interactive UI and blocks until the user quits.
 func (a *App) Run(ctx context.Context) error {
-	in := int(os.Stdin.Fd())
-	out := int(os.Stdout.Fd())
-	if !isTerminal(out) {
-		return fmt.Errorf("stdout is not a terminal; use --once for a one-shot snapshot")
+	f, ok := a.cfg.Out.(*os.File)
+	if !ok || !term.IsTerminal(f.Fd()) {
+		return errors.New("stdout is not a terminal; use --once for a one-shot snapshot")
 	}
-	restore, err := makeRaw(in)
-	if err != nil {
-		return fmt.Errorf("raw mode: %w", err)
+	a.ctx = ctx
+	opts := []tea.ProgramOption{tea.WithContext(ctx), tea.WithOutput(a.cfg.Out)}
+	if !a.cfg.Color {
+		opts = append(opts, tea.WithColorProfile(colorprofile.ASCII))
 	}
-	w := bufio.NewWriterSize(a.cfg.Out, 1<<16)
-	fmt.Fprint(w, "\x1b[?1049h\x1b[?25l")
-	w.Flush()
-	defer func() {
-		fmt.Fprint(w, "\x1b[0m\x1b[?25h\x1b[?1049l")
-		w.Flush()
-		restore()
-	}()
-
-	a.resize()
-	keys := make(chan key, 32)
-	if interactiveSupported {
-		go readKeys(os.Stdin, keys)
+	_, err := tea.NewProgram(a, opts...).Run()
+	if errors.Is(err, tea.ErrProgramKilled) && ctx.Err() != nil {
+		return nil //nolint:nilerr // stopped by SIGTERM/SIGINT: a normal exit
 	}
-	winch := make(chan os.Signal, 1)
-	notifyResize(winch)
+	return err
+}
 
-	results := make(chan scrape.Result, 1)
-	timer := time.NewTimer(0)
-	defer timer.Stop()
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+// Init starts scraping and asks the terminal for its background colour.
+func (a *App) Init() tea.Cmd {
+	return tea.Batch(a.scrape(), a.tick(), tea.RequestBackgroundColor)
+}
 
-	a.draw(w)
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-timer.C:
-			if !a.paused && !a.inflight {
-				a.inflight = true
-				go func() { results <- a.cfg.Source.Scrape(ctx) }()
-			}
-			timer.Reset(a.interval)
-		case r := <-results:
-			a.inflight = false
-			a.ingest(r)
-			a.draw(w)
-		case k, ok := <-keys:
-			if !ok {
-				return nil
-			}
-			if a.handleKey(k) {
-				return nil
-			}
-			a.draw(w)
-		case <-winch:
-			a.resize()
-			a.draw(w)
+func (a *App) scrape() tea.Cmd {
+	a.inflight = true
+	ctx, src := a.ctx, a.cfg.Source
+	return func() tea.Msg { return scrapeMsg(src.Scrape(ctx)) }
+}
+
+func (a *App) tick() tea.Cmd {
+	return tea.Tick(a.interval, func(time.Time) tea.Msg { return tickMsg{} })
+}
+
+// Update handles scrapes, timers, keys, mouse and terminal events.
+func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		a.w, a.h = msg.Width, msg.Height
+		a.help.SetWidth(a.w - 2)
+		a.input.SetWidth(max(10, a.w/2))
+	case tea.BackgroundColorMsg:
+		a.setTheme(msg.IsDark())
+	case tickMsg:
+		cmds := []tea.Cmd{a.tick()}
+		if !a.paused && !a.inflight {
+			cmds = append(cmds, a.scrape())
+		}
+		cmd = tea.Batch(cmds...)
+	case scrapeMsg:
+		a.inflight = false
+		a.ingest(scrape.Result(msg))
+	case tea.KeyPressMsg:
+		cmd = a.handleKey(msg)
+	case tea.MouseClickMsg:
+		a.handleClick(msg.Mouse())
+	case tea.MouseWheelMsg:
+		a.handleWheel(msg.Mouse())
+	default:
+		if a.filtering {
+			a.input, cmd = a.input.Update(msg)
 		}
 	}
+	a.refresh()
+	return a, cmd
 }
 
-func (a *App) resize() {
-	if w, h, ok := termSize(int(os.Stdout.Fd())); ok {
-		a.w, a.h = w, h
-	} else {
-		a.w, a.h = 120, 40
-	}
-}
-
-// handleKey updates state; it returns true to quit.
-func (a *App) handleKey(k key) bool {
-	if a.filterEdit {
-		switch k.name {
+func (a *App) handleKey(k tea.KeyPressMsg) tea.Cmd {
+	km := a.keys
+	if a.filtering {
+		switch k.String() {
 		case "enter":
-			a.filterEdit = false
+			a.filtering = false
+			a.input.Blur()
 		case "esc":
-			a.filterEdit = false
+			a.filtering = false
+			a.input.Blur()
+			a.input.SetValue("")
 			a.setFilter("")
-		case "backspace":
-			if r := []rune(a.filterBuf); len(r) > 0 {
-				a.setFilter(string(r[:len(r)-1]))
+		case "ctrl+c":
+			return tea.Quit
+		default:
+			var cmd tea.Cmd
+			a.input, cmd = a.input.Update(k)
+			if v := a.input.Value(); v != a.filterSrc {
+				a.setFilter(v)
+				a.sel, a.scroll = 0, 0
 			}
-		case "ctrl-c":
-			return true
-		case "":
-			a.setFilter(a.filterBuf + string(k.r))
+			return cmd
 		}
-		a.sel, a.scroll = 0, 0
-		return false
+		return nil
 	}
-	if a.help {
-		a.help = false
-		return k.name == "ctrl-c"
-	}
-	if k.name == "" {
-		switch k.r {
-		case 'q':
-			if a.detail != nil {
-				a.detail = nil
-				return false
-			}
-			return true
-		case 'k':
-			k.name = "up"
-		case 'j':
-			k.name = "down"
-		case 'h':
-			k.name = "left"
-		case 'l':
-			k.name = "right"
-		case 'g':
-			k.name = "home"
-		case 'G':
-			k.name = "end"
-		case '/':
-			a.filterEdit = true
-			return false
-		case 'p', ' ':
-			a.paused = !a.paused
-			return false
-		case 'a':
-			a.showAll = !a.showAll
-			return false
-		case '+', '=':
-			a.interval = nextInterval(a.interval, 1)
-			return false
-		case '-', '_':
-			a.interval = nextInterval(a.interval, -1)
-			return false
-		case '?':
-			a.help = true
-			return false
-		case 'c':
-			a.setFilter("")
-			return false
+	if a.showHelp {
+		a.showHelp = false
+		if k.String() == "ctrl+c" {
+			return tea.Quit
 		}
+		return nil
 	}
-	switch k.name {
-	case "ctrl-c":
-		return true
-	case "esc":
+	switch {
+	case key.Matches(k, km.Quit):
+		if a.detail != nil && k.String() == "q" {
+			a.detail = nil
+			return nil
+		}
+		return tea.Quit
+	case key.Matches(k, km.Filter):
+		a.filtering = true
+		a.input.CursorEnd()
+		return a.input.Focus()
+	case key.Matches(k, km.Pause):
+		a.paused = !a.paused
+	case key.Matches(k, km.All):
+		a.showAll = !a.showAll
+		a.dirty = true
+	case key.Matches(k, km.Longer):
+		a.interval = nextInterval(a.interval, 1)
+	case key.Matches(k, km.Shorter):
+		a.interval = nextInterval(a.interval, -1)
+	case key.Matches(k, km.Help):
+		a.showHelp = true
+	case key.Matches(k, km.Clear):
+		a.input.SetValue("")
+		a.setFilter("")
+	case key.Matches(k, km.Back):
 		if a.detail != nil {
 			a.detail = nil
 		} else if a.filter != nil {
+			a.input.SetValue("")
 			a.setFilter("")
 		}
-		return false
+	case a.detail != nil:
+		a.detailKey(k)
+	default:
+		a.gridKey(k)
 	}
-	if a.detail != nil {
-		return a.detailKey(k)
-	}
-	lay := buildGrid(a.sections(), a.w, a.sel, time.Now(), style{})
-	switch k.name {
-	case "up":
+	return nil
+}
+
+func (a *App) gridKey(k tea.KeyPressMsg) {
+	km, lay := a.keys, a.lay
+	page := max(1, a.bodyHeight()/PanelHeight)
+	switch {
+	case key.Matches(k, km.Up):
 		a.sel = lay.move(a.sel, -1, 0)
-	case "down":
+	case key.Matches(k, km.Down):
 		a.sel = lay.move(a.sel, 1, 0)
-	case "left":
+	case key.Matches(k, km.Left):
 		a.sel = lay.move(a.sel, 0, -1)
-	case "right", "tab":
+	case key.Matches(k, km.Right):
 		a.sel = lay.move(a.sel, 0, 1)
-	case "shift-tab":
-		a.sel = lay.move(a.sel, 0, -1)
-	case "pgdn":
-		a.sel = lay.move(a.sel, max(1, (a.h-2)/PanelHeight), 0)
-	case "pgup":
-		a.sel = lay.move(a.sel, -max(1, (a.h-2)/PanelHeight), 0)
-	case "home":
+	case key.Matches(k, km.PgDown):
+		a.sel = lay.move(a.sel, page, 0)
+	case key.Matches(k, km.PgUp):
+		a.sel = lay.move(a.sel, -page, 0)
+	case key.Matches(k, km.Home):
 		a.sel = 0
-	case "end":
+	case key.Matches(k, km.End):
 		a.sel = max(0, len(lay.cells)-1)
-	case "enter":
-		if a.sel >= 0 && a.sel < len(lay.cells) {
-			a.detail = lay.cells[a.sel].panel
-			a.ds = detailState{}
-		}
+	case key.Matches(k, km.NextSec):
+		a.sel = lay.section(a.sel, 1)
+	case key.Matches(k, km.PrevSec):
+		a.sel = lay.section(a.sel, -1)
+	case key.Matches(k, km.Open):
+		a.open(a.sel)
 	}
 	if a.sel >= 0 && a.sel < len(lay.cells) {
 		a.selName = lay.cells[a.sel].panel.Name()
 	}
-	return false
 }
 
-func (a *App) detailKey(k key) bool {
-	switch k.name {
-	case "up":
+func (a *App) open(i int) {
+	if i >= 0 && i < len(a.lay.cells) {
+		a.detail = a.lay.cells[i].panel
+		a.ds = detailState{}
+	}
+}
+
+func (a *App) detailKey(k tea.KeyPressMsg) {
+	switch k.String() {
+	case "up", "k":
 		a.ds.series--
-	case "down":
+	case "down", "j":
 		a.ds.series++
-	case "left", "shift-tab":
+	case "pgup":
+		a.ds.series -= 10
+	case "pgdown":
+		a.ds.series += 10
+	case "left", "h", "shift+tab":
 		a.ds.line--
-	case "right", "tab":
+	case "right", "l", "tab":
 		a.ds.line++
-	case "home":
+	case "home", "g":
 		a.ds.series = 0
-	case "end":
+	case "end", "G":
 		a.ds.series = 1 << 30
-	case "backspace":
-		a.detail = nil
 	}
-	if a.ds.series < 0 {
-		a.ds.series = 0
+	a.ds.series = max(0, a.ds.series)
+	a.ds.line = max(0, a.ds.line)
+}
+
+func (a *App) handleClick(m tea.Mouse) {
+	if a.detail != nil {
+		if m.Button == tea.MouseRight {
+			a.detail = nil
+		}
+		return
 	}
-	if a.ds.line < 0 {
-		a.ds.line = 0
+	if m.Y < 1 || m.Y > a.bodyHeight() || m.Button != tea.MouseLeft {
+		return
 	}
-	return false
+	i := a.lay.hit(a.scroll+m.Y-1, m.X)
+	switch {
+	case i < 0:
+	case i == a.sel:
+		a.open(i)
+	default:
+		a.sel = i
+		a.selName = a.lay.cells[i].panel.Name()
+	}
+}
+
+func (a *App) handleWheel(m tea.Mouse) {
+	var dir int
+	switch m.Button {
+	case tea.MouseWheelUp:
+		dir = -1
+	case tea.MouseWheelDown:
+		dir = 1
+	default:
+		return
+	}
+	if a.detail != nil {
+		a.ds.series = max(0, a.ds.series+dir)
+		return
+	}
+	a.sel = a.lay.move(a.sel, dir, 0)
+	if a.sel < len(a.lay.cells) {
+		a.selName = a.lay.cells[a.sel].panel.Name()
+	}
 }
 
 var intervals = []time.Duration{
@@ -366,250 +502,133 @@ func nextInterval(cur time.Duration, dir int) time.Duration {
 		}
 		return cur
 	}
-	for i := len(intervals) - 1; i >= 0; i-- {
-		if intervals[i] < cur {
-			return intervals[i]
+	for _, interval := range slices.Backward(intervals) {
+		if interval < cur {
+			return interval
 		}
 	}
 	return cur
 }
 
 func (a *App) header() string {
-	s := a.sty
-	name := " promtop "
-	target := view.Target(a.st)
-	left := s.c("1;48;5;45;38;5;16", name) + " "
-	if target != "" {
-		left += s.c(cTitle, target) + s.c(cDim, " · ")
+	t := a.th
+	pill := lipgloss.NewStyle().Background(t.accent).Foreground(t.pillFg).Bold(true).Padding(0, 1).Render("promtop")
+	left := pill + " "
+	if target := view.Target(a.st); target != "" {
+		left += t.bold(t.title, target) + t.paint(t.faint, " · ")
 	}
-	left += s.c(cDim, a.cfg.Source.String())
-	state := s.c(cOK, "● ") + s.c(cDim, a.interval.String())
-	if a.paused {
-		state = s.c("1;38;5;221", "❚❚ paused")
+	left += t.paint(t.dim, a.cfg.Source.String())
+	state := t.paint(t.ok, "● ") + t.paint(t.dim, a.interval.String())
+	switch {
+	case a.lastErr != nil:
+		state = t.bold(t.err, "● error ") + t.paint(t.dim, a.interval.String())
+	case a.paused:
+		state = t.bold(t.warn, "❚❚ paused")
 	}
-	if a.lastErr != nil {
-		state = s.c(cErr, "● ") + s.c(cDim, a.interval.String())
-	}
-	nf, ns := 0, 0
+	nf, ns, hidden := 0, 0, 0
 	for _, f := range a.st.Families {
 		if l := len(f.Live()); l > 0 {
 			nf++
 			ns += l
 		}
 	}
-	right := state + s.c(cDim, fmt.Sprintf("  %d metrics · %d series · %s · %s",
-		nf, ns, a.lastDur.Round(time.Millisecond), a.lastAt.Format("15:04:05")))
+	for _, s := range a.secs {
+		hidden += s.Hidden
+	}
+	stats := fmt.Sprintf("  %d metrics · %d series", nf, ns)
+	if hidden > 0 && !a.showAll {
+		stats += fmt.Sprintf(" · %d hidden", hidden)
+	}
+	stats += fmt.Sprintf(" · %s · %s", a.lastDur.Round(time.Millisecond), a.lastAt.Format("15:04:05"))
+	right := state + t.paint(t.dim, stats)
 	gap := a.w - vlen(left) - vlen(right) - 1
 	if gap < 1 {
 		// Narrow terminal: drop the right-hand stats.
-		return padTo(left, a.w)
+		return cut(left, a.w)
 	}
 	return left + strings.Repeat(" ", gap) + right + " "
 }
 
 func (a *App) footer() string {
-	s := a.sty
+	t := a.th
+	if a.filtering {
+		return " " + a.input.View() + "  " + t.paint(t.faint, "enter apply · esc clear · tab complete")
+	}
 	if a.lastErr != nil {
-		return " " + s.c(cErr, fit("scrape failed: "+a.lastErr.Error(), a.w-2))
+		return " " + t.bold(t.err, fit("scrape failed: "+a.lastErr.Error(), a.w-2))
 	}
-	if a.filterEdit {
-		return " " + s.c(cKey, "/") + a.filterBuf + s.c(cKey, "▏") + s.c(cDim, "  enter apply · esc clear")
-	}
-	k := func(key, desc string) string { return s.c(cKey, key) + s.c(cDim, " "+desc+"  ") }
-	var parts []string
+	bindings := a.keys.gridHelp()
+	prefix := ""
 	if a.detail != nil {
-		parts = []string{k("↑↓", "series"), k("←→/tab", "line"), k("esc", "back"), k("p", "pause"), k("+/-", "interval"), k("q", "back")}
-	} else {
-		all := "all"
-		if a.showAll {
-			all = "curated"
-		}
-		parts = []string{k("←↑↓→", "move"), k("enter", "details"), k("/", "filter"), k("a", all), k("p", "pause"), k("+/-", "interval"), k("?", "help"), k("q", "quit")}
-		if a.filter != nil {
-			parts = append([]string{s.c("1;38;5;221", "filter: "+a.filterBuf) + "  " + k("c", "clear")}, parts...)
-		}
+		bindings = a.keys.detailHelp()
+	} else if a.filter != nil {
+		prefix = t.bold(t.warn, "filter: "+a.input.Value()) + "  " + t.bold(t.accent, "c") + t.paint(t.dim, " clear") + "  "
 	}
-	return " " + strings.Join(parts, "")
+	a.help.SetWidth(a.w - 2 - vlen(prefix))
+	return " " + prefix + a.help.ShortHelpView(bindings)
 }
 
-var helpText = []string{
-	"promtop — live terminal view of a Prometheus /metrics endpoint",
+var legend = []string{
+	"Widgets are chosen from the metric type, name and values:",
+	"  counter    per-second rate (bytes/s; utilisation for *_seconds_total)",
+	"  gauge      current value, min/max and history",
+	"  histogram  p50/p90/p99 from bucket deltas, rate and average",
+	"  summary    client-side quantiles, rate and average",
+	"  usage      gauge against a sibling limit (open/max, avail/size, MemFree/MemTotal)",
+	"  state      0/1 health flags (up, *_success, *_ready) and statesets",
+	"  info       label table;  time  unix timestamps as age / uptime",
 	"",
-	"Widgets are chosen from the metric type and name:",
-	"  counter     → per-second rate (bytes/s, CPU % for *_seconds_total)",
-	"  gauge       → current value, min/max and history",
-	"  histogram   → p50/p90/p99 from bucket deltas, rate and average",
-	"  summary     → client-side quantiles, rate and average",
-	"  *_info      → label table;  *_timestamp / start_time → age / uptime",
-	"  open/max    → usage bar (e.g. process_open_fds vs process_max_fds)",
-	"",
-	"Keys",
-	"  ←↑↓→ hjkl   move between panels      enter   open details",
-	"  /           filter by regex           c       clear filter",
-	"  a           show all / curated        p space pause",
-	"  + -         change scrape interval    g G     first / last",
-	"  esc         back                      q       quit",
-	"",
-	"Details: ↑↓ choose series, ←→ or tab choose line (p99, rate, avg …)",
-	"",
-	"press any key",
+	"Big exporters are split into sections by name prefix; single-series metrics",
+	"of a crowded section are grouped by unit. Metrics that stayed at zero, limits",
+	"merged into a usage panel and runtime internals are hidden until you press a.",
+}
+
+func (a *App) helpScreen() []string {
+	t := a.th
+	out := []string{"", "  " + t.bold(t.title, "promtop") + t.paint(t.dim, " — live terminal view of a Prometheus /metrics endpoint"), ""}
+	for _, l := range legend {
+		out = append(out, "  "+t.paint(t.dim, l))
+	}
+	out = append(out, "")
+	for l := range strings.SplitSeq(a.help.FullHelpView(a.keys.fullHelp()), "\n") {
+		out = append(out, "  "+l)
+	}
+	return append(out, "", "  "+t.paint(t.faint, "press any key"))
 }
 
 // frame renders the whole screen.
 func (a *App) frame() []string {
+	t := a.th
 	lines := []string{a.header()}
-	body := a.h - 2
+	body := a.bodyHeight()
+	now := time.Now()
 	switch {
-	case a.help:
-		for _, l := range helpText {
-			lines = append(lines, "  "+l)
-		}
+	case a.showHelp:
+		lines = append(lines, a.helpScreen()...)
 	case a.detail != nil:
-		// Refresh the panel so it reflects the current store.
-		p := view.Classify(a.detail.Family, a.st)
-		lines = append(lines, renderDetail(p, &a.ds, a.interval.String(), a.w, body, a.sty)...)
+		lines = append(lines, t.renderDetail(a.detail, &a.ds, a.interval.String(), a.w, body, now)...)
+	case a.st.Scrapes == 0 && a.lastErr == nil:
+		lines = append(lines, "", "  "+t.paint(t.dim, "waiting for the first scrape…"))
+	case len(a.lay.cells) == 0 && a.filter != nil:
+		lines = append(lines, "", "  "+t.paint(t.dim, "no metrics match"))
 	default:
-		secs := a.sections()
-		lay := buildGrid(secs, a.w, -1, time.Now(), style{})
-		// Keep the selection on the same metric across rebuilds.
-		if a.selName != "" {
-			for i, c := range lay.cells {
-				if c.panel.Name() == a.selName {
-					a.sel = i
-					break
-				}
-			}
-		}
-		a.sel = clamp(a.sel, 0, len(lay.cells)-1)
-		lay = buildGrid(secs, a.w, a.sel, time.Now(), a.sty)
-		if len(lay.cells) > 0 {
-			c := lay.cells[a.sel]
-			a.selName = c.panel.Name()
-			top := c.line
-			// Show the section header above the first row of a section.
-			if top > 0 && !strings.Contains(lay.lines[top-1], "╯") && lay.lines[top-1] != "" {
-				top--
-			}
-			if top < a.scroll {
-				a.scroll = top
-			}
-			if c.line+PanelHeight > a.scroll+body {
-				a.scroll = c.line + PanelHeight - body
-			}
-		}
-		a.scroll = clamp(a.scroll, 0, max(0, len(lay.lines)-body))
-		if a.st.Scrapes == 0 {
-			lines = append(lines, "", "  "+a.sty.c(cDim, "waiting for the first scrape…"))
-		} else if len(lay.cells) == 0 {
-			lines = append(lines, "", "  "+a.sty.c(cDim, "no metrics match"))
-		}
-		end := min(len(lay.lines), a.scroll+body)
-		lines = append(lines, lay.lines[a.scroll:end]...)
+		lines = append(lines, t.render(a.lay, a.scroll, a.scroll+body, a.sel, now)...)
 	}
 	for len(lines) < a.h-1 {
 		lines = append(lines, "")
 	}
-	if len(lines) > a.h-1 {
-		lines = lines[:a.h-1]
+	lines = lines[:a.h-1]
+	for i, l := range lines {
+		lines[i] = cut(l, a.w)
 	}
-	return append(lines, a.footer())
+	return append(lines, cut(a.footer(), a.w))
 }
 
-func (a *App) draw(w *bufio.Writer) {
-	w.WriteString("\x1b[H")
-	for i, l := range a.frame() {
-		if i > 0 {
-			w.WriteString("\r\n")
-		}
-		w.WriteString(l)
-		w.WriteString("\x1b[0m\x1b[K")
-	}
-	w.WriteString("\x1b[J")
-	w.Flush()
-}
-
-// readKeys decodes terminal input into key events.
-func readKeys(r io.Reader, out chan<- key) {
-	defer close(out)
-	buf := make([]byte, 256)
-	for {
-		n, err := r.Read(buf)
-		if err != nil {
-			return
-		}
-		for _, k := range decodeKeys(buf[:n]) {
-			out <- k
-		}
-	}
-}
-
-func decodeKeys(b []byte) []key {
-	var keys []key
-	for i := 0; i < len(b); {
-		c := b[i]
-		switch {
-		case c == 0x1b:
-			if i+1 < len(b) && (b[i+1] == '[' || b[i+1] == 'O') {
-				j := i + 2
-				for j < len(b) && (b[j] < 0x40 || b[j] > 0x7e) {
-					j++
-				}
-				if j >= len(b) {
-					keys = append(keys, key{name: "esc"})
-					return keys
-				}
-				params, final := string(b[i+2:j]), b[j]
-				i = j + 1
-				switch final {
-				case 'A':
-					keys = append(keys, key{name: "up"})
-				case 'B':
-					keys = append(keys, key{name: "down"})
-				case 'C':
-					keys = append(keys, key{name: "right"})
-				case 'D':
-					keys = append(keys, key{name: "left"})
-				case 'H':
-					keys = append(keys, key{name: "home"})
-				case 'F':
-					keys = append(keys, key{name: "end"})
-				case 'Z':
-					keys = append(keys, key{name: "shift-tab"})
-				case '~':
-					switch params {
-					case "5":
-						keys = append(keys, key{name: "pgup"})
-					case "6":
-						keys = append(keys, key{name: "pgdn"})
-					case "1", "7":
-						keys = append(keys, key{name: "home"})
-					case "4", "8":
-						keys = append(keys, key{name: "end"})
-					}
-				}
-				continue
-			}
-			keys = append(keys, key{name: "esc"})
-			i++
-		case c == 3:
-			keys = append(keys, key{name: "ctrl-c"})
-			i++
-		case c == '\r' || c == '\n':
-			keys = append(keys, key{name: "enter"})
-			i++
-		case c == 0x7f || c == 0x08:
-			keys = append(keys, key{name: "backspace"})
-			i++
-		case c == '\t':
-			keys = append(keys, key{name: "tab"})
-			i++
-		case c < 0x20:
-			i++
-		default:
-			r, sz := utf8.DecodeRune(b[i:])
-			keys = append(keys, key{r: r})
-			i += sz
-		}
-	}
-	return keys
+// View renders the screen.
+func (a *App) View() tea.View {
+	v := tea.NewView(strings.Join(a.frame(), "\n"))
+	v.AltScreen = true
+	v.MouseMode = tea.MouseModeCellMotion
+	v.WindowTitle = "promtop · " + a.cfg.Source.String()
+	return v
 }

@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"net/http"
@@ -58,7 +59,7 @@ func run() int {
 	)
 	fs.Var(&headers, "H", `extra request header, repeatable ("Authorization: Bearer …")`)
 	fs.Usage = func() {
-		fmt.Fprint(fs.Output(), usage)
+		_, _ = fmt.Fprint(fs.Output(), usage)
 		fs.PrintDefaults()
 	}
 
@@ -66,7 +67,7 @@ func run() int {
 	args, positional := os.Args[1:], []string(nil)
 	for {
 		if err := fs.Parse(args); err != nil {
-			if err == flag.ErrHelp {
+			if errors.Is(err, flag.ErrHelp) {
 				return 0
 			}
 			return 2
@@ -100,10 +101,7 @@ func run() int {
 	}
 	to := *timeout
 	if to <= 0 {
-		to = min(*interval, 10*time.Second)
-		if to < time.Second {
-			to = time.Second
-		}
+		to = max(min(*interval, 10*time.Second), time.Second)
 	}
 	hdr := http.Header{}
 	for _, h := range headers {

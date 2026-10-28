@@ -1,0 +1,68 @@
+# Hand-written exposition mixing conventions of common exporters
+# (node_exporter, blackbox_exporter, kube-state-metrics, JVM/micrometer,
+# OpenTelemetry) to test classification beyond the Go client.
+# TYPE node_memory_MemTotal_bytes gauge
+node_memory_MemTotal_bytes 8e9
+# TYPE node_memory_MemAvailable_bytes gauge
+node_memory_MemAvailable_bytes 2e9
+# TYPE node_memory_Cached_bytes gauge
+node_memory_Cached_bytes 1e9
+# TYPE node_memory_Buffers_bytes gauge
+node_memory_Buffers_bytes 1e8
+# TYPE node_memory_Dirty_bytes gauge
+node_memory_Dirty_bytes 1e6
+# TYPE node_memory_HugePages_Free gauge
+node_memory_HugePages_Free 0
+# TYPE node_memory_HugePages_Total gauge
+node_memory_HugePages_Total 0
+# TYPE node_filesystem_avail_bytes gauge
+node_filesystem_avail_bytes{device="/dev/sda1",mountpoint="/"} 1e10
+node_filesystem_avail_bytes{device="/dev/sdb1",mountpoint="/data"} 9e10
+# TYPE node_filesystem_size_bytes gauge
+node_filesystem_size_bytes{device="/dev/sda1",mountpoint="/"} 5e10
+node_filesystem_size_bytes{device="/dev/sdb1",mountpoint="/data"} 1e11
+# TYPE node_nf_conntrack_entries gauge
+node_nf_conntrack_entries 123
+# TYPE node_nf_conntrack_entries_limit gauge
+node_nf_conntrack_entries_limit 65536
+# TYPE node_filefd_allocated gauge
+node_filefd_allocated 1024
+# TYPE node_filefd_maximum gauge
+node_filefd_maximum 1.6e6
+# TYPE node_load1 gauge
+node_load1 0.5
+# TYPE node_boot_time_seconds gauge
+node_boot_time_seconds 1.7e9
+# TYPE node_network_up gauge
+node_network_up{device="eth0"} 1
+node_network_up{device="eth1"} 0
+# TYPE node_network_carrier_changes_total counter
+node_network_carrier_changes_total{device="eth0"} 0
+node_network_carrier_changes_total{device="eth1"} 0
+# HELP probe_success Displays whether or not the probe was a success
+# TYPE probe_success gauge
+probe_success 1
+# TYPE probe_http_status_code gauge
+probe_http_status_code 200
+# TYPE probe_ssl_earliest_cert_expiry gauge
+probe_ssl_earliest_cert_expiry 1.8e9
+# TYPE kube_pod_status_ready gauge
+kube_pod_status_ready{pod="a",condition="true"} 1
+kube_pod_status_ready{pod="a",condition="false"} 0
+# TYPE kube_deployment_spec_replicas gauge
+kube_deployment_spec_replicas{deployment="web"} 1
+# TYPE kube_pod_labels gauge
+kube_pod_labels{pod="a",label_app="web"} 1
+# TYPE jvm_gc_pause_milliseconds summary
+jvm_gc_pause_milliseconds_sum 1500
+jvm_gc_pause_milliseconds_count 30
+# TYPE app_last_success_timestamp_ms gauge
+app_last_success_timestamp_ms 1.7e12
+# TYPE app_queue_wait gauge
+# UNIT app_queue_wait seconds
+app_queue_wait 0.25
+# TYPE app_feature stateset
+app_feature{app_feature="a"} 1
+app_feature{app_feature="b"} 0
+# TYPE "http.server.active_requests" gauge
+{"http.server.active_requests","http.request.method"="GET"} 3

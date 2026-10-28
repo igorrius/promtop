@@ -3,110 +3,9 @@ package ui
 import (
 	"math"
 	"strings"
-	"unicode/utf8"
+
+	"github.com/igorrius/promtop/internal/view"
 )
-
-// style applies ANSI SGR codes when colour is enabled.
-type style struct{ on bool }
-
-const (
-	cBorder   = "38;5;240"
-	cBorderHi = "1;38;5;45"
-	cTitle    = "1;38;5;252"
-	cTitleHi  = "1;38;5;45"
-	cSection  = "1;38;5;214"
-	cValue    = "1;38;5;255"
-	cDim      = "38;5;244"
-	cErr      = "1;38;5;203"
-	cOK       = "38;5;114"
-	cBar      = "48;5;236;38;5;252"
-	cKey      = "1;38;5;45"
-	cRate     = "38;5;39"
-	cGauge    = "38;5;114"
-	cHist     = "38;5;221"
-	cSummary  = "38;5;177"
-	cInfo     = "38;5;250"
-	cTime     = "38;5;109"
-)
-
-func (s style) c(code, text string) string {
-	if !s.on || code == "" || text == "" {
-		return text
-	}
-	return "\x1b[" + code + "m" + text + "\x1b[0m"
-}
-
-// vlen is the visible width of s (ANSI escapes stripped, one cell per rune).
-func vlen(s string) int {
-	n := 0
-	for i := 0; i < len(s); {
-		if s[i] == 0x1b {
-			j := i + 1
-			if j < len(s) && s[j] == '[' {
-				j++
-				for j < len(s) && (s[j] < 0x40 || s[j] > 0x7e) {
-					j++
-				}
-				j++
-			}
-			i = j
-			continue
-		}
-		_, sz := utf8.DecodeRuneInString(s[i:])
-		i += sz
-		n++
-	}
-	return n
-}
-
-// fit truncates (with an ellipsis) or right-pads plain text to exactly w cells.
-func fit(s string, w int) string {
-	if w <= 0 {
-		return ""
-	}
-	n := utf8.RuneCountInString(s)
-	if n == w {
-		return s
-	}
-	if n < w {
-		return s + strings.Repeat(" ", w-n)
-	}
-	if w == 1 {
-		return "…"
-	}
-	r := []rune(s)
-	return string(r[:w-1]) + "…"
-}
-
-// fitLeft truncates from the left, keeping the tail ("…_duration_seconds").
-func fitLeft(s string, w int) string {
-	n := utf8.RuneCountInString(s)
-	if n <= w {
-		return fit(s, w)
-	}
-	if w <= 1 {
-		return fit("…", w)
-	}
-	r := []rune(s)
-	return "…" + string(r[n-w+1:])
-}
-
-// rpad right-aligns plain text in w cells.
-func rpad(s string, w int) string {
-	n := utf8.RuneCountInString(s)
-	if n >= w {
-		return fit(s, w)
-	}
-	return strings.Repeat(" ", w-n) + s
-}
-
-// padTo pads an already-styled string to w visible cells.
-func padTo(s string, w int) string {
-	if n := vlen(s); n < w {
-		return s + strings.Repeat(" ", w-n)
-	}
-	return s
-}
 
 // bounds returns min/max ignoring NaN and Inf; ok is false when no value.
 func bounds(vals []float64) (lo, hi float64, ok bool) {
@@ -151,49 +50,97 @@ func scaleFor(vals []float64, zeroBased bool) (lo, hi float64) {
 
 var blocks = []rune(" ▁▂▃▄▅▆▇█")
 
-// sparkline renders the last w values as an h-row bar chart (top row first).
-func sparkline(vals []float64, w, h int, lo, hi float64) []string {
-	if w <= 0 || h <= 0 {
-		return nil
-	}
+// levels maps the last w values to bar heights in eighths of h rows; -1
+// marks a gap.
+func levels(vals []float64, w, h int, lo, hi float64) []int {
 	if len(vals) > w {
 		vals = vals[len(vals)-w:]
 	}
 	off := w - len(vals)
-	levels := make([]int, w)
+	out := make([]int, w)
 	steps := h * 8
-	for i := range levels {
-		levels[i] = -1
+	for i := range out {
+		out[i] = -1
 	}
 	for i, v := range vals {
 		if math.IsNaN(v) || math.IsInf(v, 0) {
 			continue
 		}
-		f := (v - lo) / (hi - lo)
-		f = math.Max(0, math.Min(1, f))
-		levels[off+i] = 1 + int(math.Round(f*float64(steps-1)))
+		f := math.Max(0, math.Min(1, (v-lo)/(hi-lo)))
+		out[off+i] = 1 + int(math.Round(f*float64(steps-1)))
 	}
+	return out
+}
+
+// sparkline renders the last w values as an h-row bar chart (top row first).
+func sparkline(vals []float64, w, h int, lo, hi float64) []string {
+	if w <= 0 || h <= 0 {
+		return nil
+	}
+	lv := levels(vals, w, h, lo, hi)
 	rows := make([]string, h)
-	for r := 0; r < h; r++ {
+	for r := range h {
 		base := (h - 1 - r) * 8
 		var b strings.Builder
-		for _, l := range levels {
-			switch {
-			case l < 0 || l <= base:
-				b.WriteRune(' ')
-			case l >= base+8:
-				b.WriteRune('█')
-			default:
-				b.WriteRune(blocks[l-base])
-			}
+		for _, l := range lv {
+			b.WriteRune(barRune(l, base))
 		}
 		rows[r] = b.String()
 	}
 	return rows
 }
 
-// braille renders a line chart of the last 2*w values in w×h cells.
-func braille(vals []float64, w, h int, lo, hi float64) []string {
+func barRune(l, base int) rune {
+	switch {
+	case l < 0 || l <= base:
+		return ' '
+	case l >= base+8:
+		return '█'
+	}
+	return blocks[l-base]
+}
+
+// spark renders a gradient sparkline: in a multi-row chart higher rows are
+// brighter; a one-row chart colours every bar by its own height.
+func (t *theme) spark(k view.Kind, vals []float64, w, h int, lo, hi float64) []string {
+	if w <= 0 || h <= 0 {
+		return nil
+	}
+	lv := levels(vals, w, h, lo, hi)
+	rows := make([]string, h)
+	for r := range h {
+		base := (h - 1 - r) * 8
+		var b strings.Builder
+		cur := ""
+		for _, l := range lv {
+			ch := barRune(l, base)
+			if ch == ' ' {
+				b.WriteRune(ch)
+				continue
+			}
+			var p string
+			if h == 1 {
+				p = t.rampAt(k, float64(l)/8)
+			} else {
+				p = t.rampAt(k, 0.25+0.75*float64(h-r)/float64(h))
+			}
+			if p != cur {
+				b.WriteString(p)
+				cur = p
+			}
+			b.WriteRune(ch)
+		}
+		if cur != "" {
+			b.WriteString(reset)
+		}
+		rows[r] = b.String()
+	}
+	return rows
+}
+
+// braille renders a line chart of the last 2*w values in w×h cells, as dot
+// masks (0 = empty cell).
+func braille(vals []float64, w, h int, lo, hi float64) [][]uint8 {
 	if w <= 0 || h <= 0 {
 		return nil
 	}
@@ -246,10 +193,51 @@ func braille(vals []float64, w, h int, lo, hi float64) []string {
 		}
 		prev = y
 	}
-	rows := make([]string, h)
-	for r := range grid {
+	return grid
+}
+
+// brailleRows draws a braille chart with a vertical gradient (brighter at
+// the top) and a faint dotted grid line every quarter of the height.
+func (t *theme) brailleRows(k view.Kind, vals []float64, w, h int, lo, hi float64) []string {
+	grid := braille(vals, w, h, lo, hi)
+	rows := make([]string, len(grid))
+	for r, cells := range grid {
 		var b strings.Builder
-		for _, c := range grid[r] {
+		guide := h >= 8 && r > 0 && r%(h/4) == 0
+		p := t.rampAt(k, 0.3+0.7*float64(h-r)/float64(h))
+		cur := ""
+		for x, c := range cells {
+			switch {
+			case c != 0:
+				if cur != p {
+					b.WriteString(p)
+					cur = p
+				}
+				b.WriteRune(rune(0x2800 + int(c)))
+			case guide && x%4 == 0:
+				if f := t.fg(t.faint); cur != f {
+					b.WriteString(f)
+					cur = f
+				}
+				b.WriteRune('⠂')
+			default:
+				b.WriteRune(' ')
+			}
+		}
+		if cur != "" {
+			b.WriteString(reset)
+		}
+		rows[r] = b.String()
+	}
+	return rows
+}
+
+// brailleText renders braille dot masks without colour (for tests).
+func brailleText(grid [][]uint8) []string {
+	rows := make([]string, len(grid))
+	for r, cells := range grid {
+		var b strings.Builder
+		for _, c := range cells {
 			if c == 0 {
 				b.WriteRune(' ')
 			} else {
@@ -261,22 +249,33 @@ func braille(vals []float64, w, h int, lo, hi float64) []string {
 	return rows
 }
 
-// hbar renders a horizontal bar of fraction f in w cells with eighth precision.
-func hbar(f float64, w int) string {
+var partial = []rune(" ▏▎▍▌▋▊▉")
+
+// hbar renders a horizontal bar of fraction f in w cells with eighth
+// precision, followed by a thin track for the unfilled part.
+func (t *theme) hbar(f float64, w int, fill string) string {
 	if w <= 0 {
 		return ""
+	}
+	if math.IsNaN(f) {
+		f = 0
 	}
 	f = math.Max(0, math.Min(1, f))
 	eighths := int(math.Round(f * float64(w*8)))
 	full, part := eighths/8, eighths%8
-	partial := []rune(" ▏▎▍▌▋▊▉")
 	var b strings.Builder
+	b.WriteString(fill)
 	b.WriteString(strings.Repeat("█", full))
 	n := full
 	if part > 0 && n < w {
 		b.WriteRune(partial[part])
 		n++
 	}
-	b.WriteString(strings.Repeat(" ", w-n))
+	b.WriteString(reset)
+	if n < w {
+		b.WriteString(t.fg(t.faint))
+		b.WriteString(strings.Repeat("─", w-n))
+		b.WriteString(reset)
+	}
 	return b.String()
 }

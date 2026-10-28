@@ -2,8 +2,13 @@ package ui
 
 import (
 	"math"
+	"sort"
 	"strings"
+	"time"
 
+	"charm.land/lipgloss/v2"
+
+	"github.com/igorrius/promtop/internal/expo"
 	"github.com/igorrius/promtop/internal/store"
 	"github.com/igorrius/promtop/internal/view"
 )
@@ -20,75 +25,85 @@ func detailSeries(p *view.Panel) []*store.Series {
 	if p.Kind == view.KindHistogram || p.Kind == view.KindSummary {
 		line = rowLine(p)
 	}
-	return sortedByPrimary(p.Family.Live(), line)
+	return sortedRows(p, p.Family.Live(), line)
 }
 
 // renderDetail draws the fullscreen view of one panel in w×h cells.
-func renderDetail(p *view.Panel, ds *detailState, interval string, w, h int, sty style) []string {
+func (t *theme) renderDetail(p *view.Panel, ds *detailState, interval string, w, h int, now time.Time) []string {
 	f := p.Family
 	series := detailSeries(p)
-	var out []string
-	unit := unitName(p)
-	head := sty.c(cTitle, f.Name) + "  " + sty.c(cDim, string(f.Type)+" · "+p.Kind.String()+unit)
-	out = append(out, " "+head)
+	kind := string(f.Type)
+	if w := p.Kind.String(); w != kind {
+		kind += " · " + w
+	}
+	kind += unitName(p)
+	if p.Group {
+		kind = "group of " + itoa(len(series)) + " " + p.Kind.String() + " metrics" + unitName(p)
+	}
+	out := []string{" " + t.bold(t.title, f.Name) + "  " + t.paint(t.dim, kind)}
 	if f.Help != "" {
-		out = append(out, " "+sty.c(cDim, fit(strings.ReplaceAll(f.Help, "\n", " "), w-2)))
+		help := lipgloss.Wrap(strings.ReplaceAll(f.Help, "\n", " "), w-2, " ")
+		for i, l := range strings.Split(help, "\n") {
+			if i == 2 {
+				break
+			}
+			out = append(out, " "+t.paint(t.dim, l))
+		}
 	}
 	if len(series) == 0 {
-		return append(out, "", " "+sty.c(cDim, "no data in the latest scrape"))
+		return append(out, "", " "+t.paint(t.dim, "no data in the latest scrape"))
 	}
-	if p.Kind == view.KindInfo || p.Kind == view.KindTimestamp {
-		out = append(out, "")
-		for _, s := range series {
-			out = append(out, " "+fit(view.LabelText(view.VisibleLabels(f, s), true)+"  = "+view.SI(s.Raw), w-2))
-		}
-		return out
+	switch p.Kind {
+	case view.KindInfo, view.KindTimestamp:
+		return append(out, t.labelTable(p, series, ds, w, h-len(out)-1, now)...)
+	case view.KindState:
+		return append(out, t.stateDetail(p, series, ds, w, h-len(out)-1)...)
 	}
-	ds.series = clamp(ds.series, 0, len(series)-1)
+	ds.series = clamp(ds.series, len(series)-1)
 	s := series[ds.series]
-	ds.line = clamp(ds.line, 0, len(s.Lines)-1)
+	ds.line = clamp(ds.line, len(s.Lines)-1)
 	ln := s.Lines[ds.line]
 
 	lbl := view.LabelText(view.VisibleLabels(f, s), true)
 	if lbl == "" {
 		lbl = "{}"
 	}
-	sel := sty.c(cDim, "series ") + sty.c(cValue, itoa(ds.series+1)+"/"+itoa(len(series))) + " " + fit(lbl, max(10, w/2))
-	lines := make([]string, len(s.Lines))
+	sel := t.paint(t.dim, "series ") + t.bold(t.value, itoa(ds.series+1)+"/"+itoa(len(series))) + " " + fit(lbl, max(10, w/2))
+	tabs := make([]string, len(s.Lines))
 	for i, l := range s.Lines {
 		if i == ds.line {
-			lines[i] = sty.c(cKey, "["+l.Name+"]")
+			tabs[i] = t.bold(t.accent, "["+l.Name+"]")
 		} else {
-			lines[i] = sty.c(cDim, l.Name)
+			tabs[i] = t.paint(t.dim, l.Name)
 		}
 	}
-	out = append(out, " "+sel+"   "+strings.Join(lines, " "))
-	out = append(out, "")
+	out = append(out, " "+sel+"   "+strings.Join(tabs, " "), "")
 
-	// Bottom area: bucket distribution for histograms, otherwise a series table.
+	// Bottom area: bucket distribution for histograms, usage bars, or a
+	// series table.
 	var bottom []string
 	tableH := max(4, h/3)
 	if p.Kind == view.KindHistogram {
-		bottom = distribution(p, s, w, tableH, sty)
+		bottom = t.distribution(p, s, w, tableH)
 	}
-	if len(series) > 1 {
+	if p.Kind == view.KindUsage {
+		bottom = t.usageTable(p, series, ds, w, tableH)
+	} else if len(series) > 1 {
 		if len(bottom) > 0 {
 			bottom = append(bottom, "")
 		}
-		bottom = append(bottom, seriesTable(p, series, ds, w, tableH, sty)...)
+		bottom = append(bottom, t.seriesTable(p, series, ds, w, tableH)...)
 	}
 
-	chartH := h - len(out) - len(bottom) - 2
-	if chartH < 3 {
-		chartH = 3
-	}
+	chartH := max(3, h-len(out)-len(bottom)-2)
 	const axisW = 10
 	cw := w - axisW - 3
 	vals := ln.Ring.Values()
-	zero := p.Kind == view.KindRate || ln.Name == "rate"
+	// Never put a negative value on the axis of a series that has none.
+	vlo, _, _ := bounds(vals)
+	zero := p.Kind == view.KindRate || ln.Name == "rate" || vlo >= 0
 	lo, hi := scaleFor(vals, zero)
-	chart := braille(vals, cw, chartH, lo, hi)
-	for i, r := range chart {
+	for i, r := range t.brailleRows(p.Kind, vals, cw, chartH, lo, hi) {
 		var axis string
 		switch i {
 		case 0:
@@ -98,12 +113,14 @@ func renderDetail(p *view.Panel, ds *detailState, interval string, w, h int, sty
 		case chartH / 2:
 			axis = p.FormatLine(ln.Name, (lo+hi)/2)
 		}
-		out = append(out, sty.c(cDim, rpad(axis, axisW)+" ┤")+" "+sty.c(kindColor(p.Kind), r))
+		out = append(out, t.paint(t.dim, rpad(axis, axisW)+" ┤")+" "+r)
 	}
 	cur := p.FormatLine(ln.Name, ln.Ring.Last())
-	foot := strings.Repeat(" ", axisW) + " └ " + itoa(len(vals)) + " samples @ " + interval + " · now " + cur
-	out = append(out, sty.c(cDim, fit(foot, w)))
-	out = append(out, "")
+	foot := t.paint(t.dim, strings.Repeat(" ", axisW)+" └ "+itoa(len(vals))+" samples @ "+interval+" · now ") + t.bold(t.value, cur)
+	if vlo, vhi, ok := bounds(vals); ok {
+		foot += t.paint(t.dim, " · min "+p.FormatLine(ln.Name, vlo)+" · max "+p.FormatLine(ln.Name, vhi))
+	}
+	out = append(out, cut(foot, w), "")
 	return append(out, bottom...)
 }
 
@@ -123,7 +140,7 @@ func unitName(p *view.Panel) string {
 	return ""
 }
 
-func distribution(p *view.Panel, s *store.Series, w, rows int, sty style) []string {
+func (t *theme) distribution(p *view.Panel, s *store.Series, w, rows int) []string {
 	b := s.Buckets
 	first, last := -1, -1
 	for i, x := range b {
@@ -134,9 +151,9 @@ func distribution(p *view.Panel, s *store.Series, w, rows int, sty style) []stri
 			last = i
 		}
 	}
-	title := " " + sty.c(cSection, "Distribution") + sty.c(cDim, " · observations per bucket, last interval")
+	title := " " + t.bold(t.section, "Distribution") + t.paint(t.dim, " · observations per bucket, last interval")
 	if first < 0 {
-		return []string{title, " " + sty.c(cDim, "no observations")}
+		return []string{title, " " + t.paint(t.dim, "no observations")}
 	}
 	b = b[first : last+1]
 	rows = max(1, rows-1)
@@ -165,75 +182,156 @@ func distribution(p *view.Panel, s *store.Series, w, rows int, sty style) []stri
 		if math.IsInf(g.le, 1) {
 			le = "+Inf"
 		}
-		out = append(out, " "+sty.c(cDim, rpad(le, leW))+" "+sty.c(cHist, hbar(g.count/maxC, bw))+" "+rpad(view.SI(g.count), cntW))
+		f := g.count / maxC
+		out = append(out, " "+t.paint(t.dim, rpad(le, leW))+" "+t.hbar(f, bw, t.rampAt(view.KindHistogram, 0.4+0.6*f))+" "+rpad(view.SI(g.count), cntW))
 	}
 	return out
 }
 
-func seriesTable(p *view.Panel, series []*store.Series, ds *detailState, w, rows int, sty style) []string {
-	cols := []string{}
-	for _, l := range series[0].Lines {
-		cols = append(cols, l.Name)
-	}
-	if p.Kind == view.KindGauge || p.Kind == view.KindRate || p.Kind == view.KindUsage {
-		cols = []string{cols[0], "min", "max"}
-	}
-	const vw = 10
-	lw := w - 4 - len(cols)*(vw+1)
-	hdr := "  " + fit("labels", lw)
-	for _, c := range cols {
-		hdr += " " + rpad(c, vw)
-	}
-	out := []string{sty.c(cDim, hdr)}
-	rows = max(1, rows-1)
+// tableWindow keeps the selected row visible and returns the visible range.
+func tableWindow(ds *detailState, n, rows int) (start, end int) {
+	ds.series = clamp(ds.series, n-1)
 	if ds.series < ds.scroll {
 		ds.scroll = ds.series
 	}
 	if ds.series >= ds.scroll+rows {
 		ds.scroll = ds.series - rows + 1
 	}
-	end := min(len(series), ds.scroll+rows)
-	for i := ds.scroll; i < end; i++ {
+	ds.scroll = clamp(ds.scroll, max(0, n-rows))
+	return ds.scroll, min(n, ds.scroll+rows)
+}
+
+func (t *theme) mark(selected bool) string {
+	if selected {
+		return t.bold(t.accent, "▸ ")
+	}
+	return "  "
+}
+
+func (t *theme) more(n int) string {
+	return t.paint(t.dim, "  … "+itoa(n)+" more (↑/↓)")
+}
+
+func (t *theme) seriesTable(p *view.Panel, series []*store.Series, ds *detailState, w, rows int) []string {
+	cols := make([]string, 0, len(series[0].Lines))
+	for _, l := range series[0].Lines {
+		cols = append(cols, l.Name)
+	}
+	if p.Kind == view.KindGauge || p.Kind == view.KindRate {
+		cols = []string{cols[0], "min", "max"}
+	}
+	const vw = 10
+	lw := w - 4 - len(cols)*(vw+1)
+	var hdr strings.Builder
+	hdr.WriteString("  " + fit("labels", lw))
+	for _, c := range cols {
+		hdr.WriteString(" " + rpad(c, vw))
+	}
+	out := []string{t.paint(t.dim, hdr.String())}
+	start, end := tableWindow(ds, len(series), max(1, rows-1))
+	for i := start; i < end; i++ {
 		s := series[i]
-		mark := "  "
-		if i == ds.series {
-			mark = sty.c(cKey, "▸ ")
-		}
-		row := mark + fit(view.RowLabel(p.Family, s), lw)
+		var row strings.Builder
+		row.WriteString(t.mark(i == ds.series) + fit(view.RowLabel(p.Family, s), lw))
 		for _, c := range cols {
 			var v string
 			switch c {
 			case "min", "max":
 				lo, hi, ok := bounds(s.Primary().Values())
-				if !ok {
+				switch {
+				case !ok:
 					v = "–"
-				} else if c == "min" {
+				case c == "min":
 					v = p.Format(lo)
-				} else {
+				default:
 					v = p.Format(hi)
 				}
 			default:
 				v = p.FormatLine(c, s.Line(c).Last())
 			}
-			row += " " + rpad(v, vw)
+			row.WriteString(" " + rpad(v, vw))
 		}
-		out = append(out, row)
+		out = append(out, row.String())
 	}
 	if end < len(series) {
-		out = append(out, sty.c(cDim, "  … "+itoa(len(series)-end)+" more (↑/↓)"))
+		out = append(out, t.more(len(series)-end))
 	}
 	return out
 }
 
-func clamp(v, lo, hi int) int {
-	if hi < lo {
-		return lo
+func (t *theme) usageTable(p *view.Panel, series []*store.Series, ds *detailState, w, rows int) []string {
+	const vw = 10
+	lw := min(30, w/3)
+	bw := w - lw - 3*(vw+1) - 4
+	hdr := "  " + fit("labels", lw) + " " + rpad("used", vw) + " " + rpad("limit", vw) + " " + rpad("%", vw)
+	out := []string{t.paint(t.dim, hdr)}
+	start, end := tableWindow(ds, len(series), max(1, rows-1))
+	for i := start; i < end; i++ {
+		s := series[i]
+		used, lim := p.UsageValues(s)
+		f := p.Usage(s)
+		row := t.mark(i == ds.series) + fit(view.RowLabel(p.Family, s), lw) +
+			" " + rpad(p.Format(used), vw) + " " + rpad(p.Format(lim), vw) +
+			" " + t.bold(t.usageColor(f), rpad(view.Percent(f*100), vw))
+		if bw > 4 {
+			row += " " + t.hbar(f, bw, t.usageAt(f))
+		}
+		out = append(out, row)
 	}
-	if v < lo {
-		return lo
+	if end < len(series) {
+		out = append(out, t.more(len(series)-end))
 	}
-	if v > hi {
-		return hi
+	return out
+}
+
+// labelTable lists every series of an info or timestamp family.
+func (t *theme) labelTable(p *view.Panel, series []*store.Series, ds *detailState, w, rows int, now time.Time) []string {
+	out := []string{""}
+	start, end := tableWindow(ds, len(series), max(1, rows-2))
+	for i := start; i < end; i++ {
+		s := series[i]
+		val := "= " + view.SI(s.Raw)
+		if p.Kind == view.KindTimestamp {
+			val = ageText(p, s, now) + "  " + tsTime(p, s).Local().Format("2006-01-02 15:04:05")
+		}
+		lbl := view.LabelText(view.VisibleLabels(p.Family, s), true)
+		out = append(out, t.mark(i == ds.series)+fit(lbl, w-vlen(val)-5)+"  "+t.bold(t.value, val))
 	}
-	return v
+	if end < len(series) {
+		out = append(out, t.more(len(series)-end))
+	}
+	return out
+}
+
+// stateDetail lists every flag with its history, problems first.
+func (t *theme) stateDetail(p *view.Panel, series []*store.Series, ds *detailState, w, rows int) []string {
+	rows = max(1, rows-2)
+	ordered := append([]*store.Series(nil), series...)
+	if p.Family.Type != expo.StateSet {
+		sort.SliceStable(ordered, func(i, j int) bool { return !view.StateUp(ordered[i]) && view.StateUp(ordered[j]) })
+	}
+	lw := min(40, w/3)
+	out := []string{""}
+	start, end := tableWindow(ds, len(ordered), rows)
+	for i := start; i < end; i++ {
+		s := ordered[i]
+		st := t.paint(t.ok, "● up  ")
+		switch {
+		case p.Family.Type == expo.StateSet && s.Raw == 1:
+			st = t.bold(t.accent, "◆ on  ")
+		case p.Family.Type == expo.StateSet:
+			st = t.paint(t.dim, "◇ off ")
+		case !view.StateUp(s):
+			st = t.bold(t.err, "○ down")
+		}
+		lbl := view.RowLabel(p.Family, s)
+		if lbl == "" {
+			lbl = "{}"
+		}
+		out = append(out, t.mark(i == ds.series)+fit(lbl, lw)+" "+st+" "+t.stateHistory(s.Primary().Values(), max(0, w-lw-12)))
+	}
+	if end < len(ordered) {
+		out = append(out, t.more(len(ordered)-end))
+	}
+	return out
 }

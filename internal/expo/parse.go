@@ -4,6 +4,7 @@ package expo
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -14,6 +15,7 @@ import (
 // Type is a metric family type as declared by a "# TYPE" line.
 type Type string
 
+// Metric types of the text format and OpenMetrics.
 const (
 	Counter        Type = "counter"
 	Gauge          Type = "gauge"
@@ -197,7 +199,7 @@ func parseSample(line string) (Sample, error) {
 		i = end
 	}
 	if s.Name == "" {
-		return s, fmt.Errorf("missing metric name")
+		return s, errors.New("missing metric name")
 	}
 	rest := strings.Fields(line[i:])
 	if len(rest) == 0 {
@@ -221,7 +223,7 @@ func parseLabels(line string, pos int, s *Sample) (int, error) {
 			i++
 		}
 		if i >= len(line) {
-			return i, fmt.Errorf("unterminated label set")
+			return i, errors.New("unterminated label set")
 		}
 		if line[i] == '}' {
 			return i + 1, nil
@@ -282,7 +284,7 @@ func readQuoted(line string, pos int) (string, int, error) {
 		switch c {
 		case '\\':
 			if i+1 >= len(line) {
-				return "", i, fmt.Errorf("dangling escape")
+				return "", i, errors.New("dangling escape")
 			}
 			i++
 			switch line[i] {
@@ -297,7 +299,7 @@ func readQuoted(line string, pos int) (string, int, error) {
 			b.WriteByte(c)
 		}
 	}
-	return "", len(line), fmt.Errorf("unterminated string")
+	return "", len(line), errors.New("unterminated string")
 }
 
 func parseFloat(s string) (float64, error) {
