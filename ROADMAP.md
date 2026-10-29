@@ -18,6 +18,11 @@ off. Nothing here is promised; issues and pull requests are welcome.
   images show boxes where the terminal shows the text.
 - **Safe concurrent `record`.** Two writers at the same instant can lose one sample; a lock file
   would make it exact.
+- **Agent summary: raw points.** A `-points` switch for `-format summary` that adds each series'
+  samples with timestamps, for questions the window statistics do not answer.
+- **An MCP server** (`promtop mcp`) over the summary document, mainly to reach the history of a
+  running terminal or web session and to hand multimodal models the PNG of a chart; agents with a
+  shell already get everything else from `render -format summary`.
 - PDF output, and a size hint for chat apps (Telegram re-encodes photos above 1280 px).
 
 ## Dashboard layout

@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"encoding/json"
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/igorrius/promtop/internal/history"
@@ -34,9 +36,40 @@ func TestRenderCommand(t *testing.T) {
 		{"-offline", fixture},
 		{"-view", "pie", "-o", filepath.Join(dir, "x.png"), fixture},
 		{"-l", "broken", fixture},
+		{"-list", "-o", filepath.Join(dir, "x.png"), fixture},
+		{"-format", "summary", "-list", "-notable", fixture},
 	} {
 		if code := runRender(args); code != 2 {
 			t.Errorf("render %v: exit %d, want 2", args, code)
+		}
+	}
+}
+
+func TestRenderSummary(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "summary.json")
+	if code := runRender([]string{"-format", "summary", "-m", "go_*", "-o", out, fixture}); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	b, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Schema  string            `json:"schema"`
+		Notable []json.RawMessage `json:"notable"`
+		Metrics []struct {
+			Name string `json:"name"`
+		} `json:"metrics"`
+	}
+	if err := json.Unmarshal(b, &doc); err != nil {
+		t.Fatalf("%v: %s", err, b)
+	}
+	if doc.Schema != "promtop.summary/v1" || doc.Notable == nil || len(doc.Metrics) == 0 {
+		t.Errorf("summary = %s", b)
+	}
+	for _, m := range doc.Metrics {
+		if !strings.HasPrefix(m.Name, "go_") {
+			t.Errorf("unselected metric %s", m.Name)
 		}
 	}
 }

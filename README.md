@@ -142,7 +142,7 @@ The file stores only the selected metrics, so select the limit of a usage bar to
 | Flag | Meaning |
 |------|---------|
 | `-o file` | output, `-` for stdout (the default); the extension picks the format |
-| `-format f` | `png`, `svg`, `json`, `txt` or `ansi` |
+| `-format f` | `png`, `svg`, `json`, `summary`, `txt` or `ansi` |
 | `-m glob`, `-f regex`, `-l matcher` | select metrics and series |
 | `-view v` | `auto` (details for one metric), `grid` or `detail` |
 | `-for d`, `-i d` | sample for `d`, every `-i` |
@@ -153,6 +153,46 @@ The file stores only the selected metrics, so select the limit of a usage bar to
 
 Images are drawn in pure Go with an embedded DejaVu Sans Mono font; box drawing, bars and braille
 charts are geometry, so they join up at any scale. No browser, no server.
+
+## For AI agents and scripts
+
+`-format summary` is the JSON to give a model or a script instead of the raw exposition: one line,
+numbers in base units, labels as objects, `last/avg/min/max/trend` of every series over the
+sampled window, and a ranked `notable` list of what is down, near a limit, answering 5xx, about to
+expire, restarted, or moving. The layout is versioned (`"schema": "promtop.summary/v1"`) and does
+not change with the web page, which is what `-format json` follows.
+
+```sh
+promtop render -format summary -notable -for 1m 9100   # what is wrong, in a few hundred bytes
+promtop render -format summary -list 9100              # which metrics there are, no values
+promtop render -format summary -for 1m -m 'http_*' -l 'code=~5..' 9100   # dig into one thing
+```
+
+```json
+{"schema":"promtop.summary/v1","source":"http://localhost:9100/metrics",
+ "window":{"from":"2026-10-29T14:40:49Z","to":"2026-10-29T14:41:49Z","samples":31,"interval_s":2},
+ "totals":{"metrics":30,"series":58,"shown":26,"hidden":4},
+ "notable":[
+  {"metric":"demo_dependency_up","labels":{"dependency":"kafka"},"reason":"down","changes":2},
+  {"metric":"demo_disk_avail_bytes","labels":{"mount":"/var/lib/demo"},"value":"used_ratio","reason":"near_limit","last":1},
+  {"metric":"demo_http_requests_total","value":"rate","reason":"errors","last":0.5,"share":0.0076}]}
+```
+
+`-top n` keeps that many series per metric (5 by default, `0` for all), `-for` is what gives
+trends (three samples or more), and `-state` with `-offline` reads the history `promtop record`
+collected, so a cron job can ask a model about the last day. The detection is deterministic and
+small — health flags, usage at 90%, 5xx counters, deadlines under 7 days, timestamps that moved,
+and changes of 50% between the first and last third of the window that stand out of the noise
+(Poisson for event counters, the spread of the samples otherwise; growing GC heaps are left out) —
+the model does the interpreting.
+
+[`skills/analyzing-metrics-with-promtop`](skills/analyzing-metrics-with-promtop) is an
+[Agent Skill](https://agentskills.io) that teaches an agent this workflow and the fields
+(`reference.md` there documents the schema). For Claude Code:
+
+```sh
+cp -r skills/analyzing-metrics-with-promtop ~/.claude/skills/
+```
 
 ## Install
 
