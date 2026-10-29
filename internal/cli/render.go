@@ -18,6 +18,7 @@ import (
 	"github.com/igorrius/promtop/internal/render"
 	"github.com/igorrius/promtop/internal/scrape"
 	"github.com/igorrius/promtop/internal/store"
+	"github.com/igorrius/promtop/internal/summary"
 	"github.com/igorrius/promtop/internal/ui"
 	"github.com/igorrius/promtop/internal/view"
 )
@@ -34,6 +35,13 @@ Examples:
   promtop render -m node_load1 -for 1m -o load.svg 9100      one metric: a detail chart
   promtop render -m 'temp_*' -state ~/.cache/temp.state -o temp.png sensors:9100
   promtop render -format json -m 'battery_*' 9100            the data, for bots
+  promtop render -format summary -for 1m 9100                numbers and what changed, for agents
+  promtop render -format summary -list 9100                  which metrics there are
+
+-format summary is a compact, versioned JSON document for AI agents and
+scripts (schema promtop.summary/v1): values in base units, labels as
+objects, last/avg/min/max/trend over the sampled window, and a "notable"
+list of series that are down, near a limit, erroring or moving.
 
 Without -state or -for promtop scrapes twice, -i apart, so rates have a value
 but charts have only two points; -for samples longer, and -state draws the
@@ -65,7 +73,7 @@ func runRender(args []string) int {
 	sel := addSelectFlags(fs)
 	var (
 		out       = fs.String("o", "-", "output file, - for stdout")
-		format    = fs.String("format", "", "png, svg, json, txt or ansi (default: from the -o extension, else png)")
+		format    = fs.String("format", "", "png, svg, json, summary, txt or ansi (default: from the -o extension, else png)")
 		style     = fs.String("style", "terminal", "picture style: "+strings.Join(render.StyleNames(), ", "))
 		viewMode  = fs.String("view", "auto", "grid, detail, or auto: details when one metric is selected")
 		all       = fs.Bool("a", false, "include metrics hidden in curated mode (idle, merged limits, runtime internals)")
@@ -78,6 +86,9 @@ func runRender(args []string) int {
 		width     = fs.Int("width", 0, "width in cells (default: 90 for a grid, two columns; 100 for details)")
 		height    = fs.Int("height", 12, "chart height in cells of each detail view")
 		scale     = fs.Float64("scale", 2, "image scale: 1 means a 15px font")
+		top       = fs.Int("top", 5, "-format summary: series per metric, 0 for all")
+		list      = fs.Bool("list", false, "-format summary: only names, types, units and series counts")
+		notable   = fs.Bool("notable", false, "-format summary: only the notable list")
 	)
 	fs.Usage = func() {
 		_, _ = fmt.Fprint(fs.Output(), renderUsage)
@@ -95,9 +106,23 @@ func runRender(args []string) int {
 		}
 	}
 	switch f {
-	case render.PNG, render.SVG, render.JSON, render.Text, render.ANSI:
+	case render.PNG, render.SVG, render.JSON, render.Text, render.ANSI, formatSummary:
 	default:
 		return usageErr(fmt.Errorf("unknown format %q", *format))
+	}
+	if f != formatSummary {
+		var only error
+		fs.Visit(func(fl *flag.Flag) {
+			if fl.Name == "top" || fl.Name == "list" || fl.Name == "notable" {
+				only = fmt.Errorf("-%s needs -format summary", fl.Name)
+			}
+		})
+		if only != nil {
+			return usageErr(only)
+		}
+	}
+	if *list && *notable {
+		return usageErr(errors.New("-list and -notable do not combine"))
 	}
 	if *out == "-" && f.Binary() && term.IsTerminal(os.Stdout.Fd()) {
 		return usageErr(errors.New("refusing to write PNG to a terminal; use -o file.png or a pipe"))
@@ -125,42 +150,46 @@ func runRender(args []string) int {
 	defer stop()
 	st := store.New(*keep)
 	interval := *sf.interval
-	var scrapes []history.Scrape
+	// raw is the history before the label matchers: what the summary's error
+	// share is taken from, so -l 'code=~5..' does not make it 100%.
+	var raw []history.Scrape
+	fresh := 0
 	if *statePath != "" {
-		if scrapes, err = history.Load(*statePath); err != nil {
+		if raw, err = history.Load(*statePath); err != nil {
 			return fail(err)
-		}
-		for i := range scrapes {
-			if scrapes[i].Families, err = selector.Apply(scrapes[i].Families); err != nil {
-				return usageErr(err)
-			}
 		}
 	}
 	if !*offline {
-		fresh, err := sampleScrapes(ctx, src, interval, *sample, len(scrapes) > 0)
+		// A list needs names, not rates: one scrape is enough.
+		got, err := sampleScrapes(ctx, src, interval, *sample, len(raw) > 0 || *list)
 		switch {
-		case err != nil && len(scrapes) == 0:
+		case err != nil && len(raw) == 0:
 			return fail(err)
 		case err != nil:
 			fmt.Fprintf(os.Stderr, "promtop: %v; drawing the stored history\n", err)
 		}
-		for _, s := range fresh {
+		fresh = len(got)
+		for _, s := range got {
 			// A history file stores only the selection; a one-off render keeps
 			// every family, so usage panels still find their limits.
 			if *statePath != "" {
-				s.Families, err = keepSelected(s.Families, names, selector)
-			} else {
-				s.Families, err = selector.Apply(s.Families)
+				if s.Families, err = keepSelected(s.Families, names, view.Selector{}); err != nil {
+					return usageErr(err)
+				}
 			}
-			if err != nil {
-				return usageErr(err)
-			}
-			scrapes = history.Append(scrapes, s)
+			raw = history.Append(raw, s)
 		}
-		if *statePath != "" && len(fresh) > 0 {
-			if err := history.Save(*statePath, scrapes, *keep); err != nil {
-				return fail(err)
-			}
+	}
+	scrapes := make([]history.Scrape, len(raw))
+	for i, s := range raw {
+		if s.Families, err = selector.Apply(s.Families); err != nil {
+			return usageErr(err)
+		}
+		scrapes[i] = s
+	}
+	if *statePath != "" && fresh > 0 {
+		if err := history.Save(*statePath, scrapes, *keep); err != nil {
+			return fail(err)
 		}
 	}
 	if len(scrapes) == 0 {
@@ -219,11 +248,28 @@ func runRender(args []string) int {
 		defer func() { _ = file.Close() }()
 		w = file
 	}
-	if err := render.Render(w, snap, *style, f, render.Options{Scale: *scale}); err != nil {
+	if f == formatSummary {
+		so := summary.Options{
+			Source: src.String(), From: scrapes[0].At, To: snap.At, Interval: interval, Now: snap.Now,
+			Top: *top, List: *list, Notable: *notable,
+		}
+		if len(selector.Labels) > 0 {
+			so.Unfiltered = store.New(*keep)
+			history.Replay(so.Unfiltered, raw)
+		}
+		err = summary.Write(w, st, secs, so)
+	} else {
+		err = render.Render(w, snap, *style, f, render.Options{Scale: *scale})
+	}
+	if err != nil {
 		return fail(err)
 	}
 	return 0
 }
+
+// formatSummary is the agent document of package summary; it is not a
+// picture of the dashboard, so it lives next to render's formats, not in them.
+const formatSummary render.Format = "summary"
 
 func runRecord(args []string) int {
 	fs := flag.NewFlagSet("promtop record", flag.ContinueOnError)
