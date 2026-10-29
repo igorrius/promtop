@@ -283,9 +283,13 @@ wheel, right-click to go back.
 -no-color         disable colours (NO_COLOR is honoured too)
 -web              serve the dashboard over HTTP and open it in the browser
 -web-addr addr    listen address for -web and the w key (default 127.0.0.1:0, a free local port)
+-version          print the version and exit (also: promtop version)
 ```
 
-`promtop render -h` and `promtop record -h` list the flags of the snapshot commands.
+`promtop render -h` and `promtop record -h` list the flags of the snapshot commands. The version
+is also on the help screen (`?`) and next to the name on the web page. A release build carries
+its tag; `go install …@v0.3.0` the module version; a local build the git tag or commit it was
+built from (`0.3.0+dirty` with uncommitted changes).
 
 ## Try it
 

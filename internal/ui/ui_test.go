@@ -357,6 +357,15 @@ func TestFooter(t *testing.T) {
 	}
 }
 
+func TestHelpVersion(t *testing.T) {
+	a := newTestApp(t, 120, 40)
+	a.cfg.Version = "0.3.0"
+	press(a, "?")
+	if got := ansi.Strip(strings.Join(a.frame(), "\n")); !strings.Contains(got, "promtop 0.3.0 — live") {
+		t.Errorf("help screen lacks the version:\n%s", got)
+	}
+}
+
 // The detail chart of a non-negative series never shows a negative axis.
 func TestDetailAxis(t *testing.T) {
 	a := newTestApp(t, 120, 40)

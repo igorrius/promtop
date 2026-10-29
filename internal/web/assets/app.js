@@ -284,6 +284,7 @@ function render() {
   if (!fr) return;
   $("target").textContent = fr.target || "";
   $("source").textContent = fr.source;
+  $("version").textContent = fr.version || "";
   const st = $("state");
   if (state.paused) { st.className = "state paused"; st.textContent = "❚❚ paused"; }
   else if (fr.err) { st.className = "state err"; st.textContent = "error"; }

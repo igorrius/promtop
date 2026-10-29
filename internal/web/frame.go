@@ -71,8 +71,9 @@ func tone(t view.Tone) string {
 type Frame struct {
 	Target   string    `json:"target,omitempty"`
 	Source   string    `json:"source"`
-	Interval float64   `json:"interval"` // seconds
-	At       int64     `json:"at"`       // unix ms of the latest scrape
+	Version  string    `json:"version,omitempty"` // promtop's
+	Interval float64   `json:"interval"`          // seconds
+	At       int64     `json:"at"`                // unix ms of the latest scrape
 	Took     string    `json:"took,omitempty"`
 	Err      string    `json:"err,omitempty"`
 	Metrics  int       `json:"metrics"`

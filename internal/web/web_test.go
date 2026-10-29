@@ -51,6 +51,7 @@ func newServer(t *testing.T) *Server {
 
 func TestFrame(t *testing.T) {
 	s := newServer(t)
+	s.cfg.Version = "0.3.0"
 	s.mu.Lock()
 	b := s.frame(options{key: "x"})
 	s.mu.Unlock()
@@ -77,7 +78,7 @@ func TestFrame(t *testing.T) {
 			t.Errorf("%s: view %q, want %q", id, views[id], v)
 		}
 	}
-	if fr.Metrics == 0 || fr.Scrapes != 2 || len(fr.Names) == 0 {
+	if fr.Metrics == 0 || fr.Scrapes != 2 || len(fr.Names) == 0 || fr.Version != "0.3.0" {
 		t.Errorf("header = %+v", fr)
 	}
 }

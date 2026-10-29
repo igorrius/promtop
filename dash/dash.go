@@ -24,11 +24,11 @@ package dash
 
 import (
 	"net/http"
-	"runtime/debug"
 	"sync/atomic"
 	"time"
 
 	"github.com/igorrius/promtop/internal/scrape"
+	"github.com/igorrius/promtop/internal/version"
 	"github.com/igorrius/promtop/internal/web"
 )
 
@@ -100,12 +100,13 @@ func New(metrics http.Handler, opts ...Option) *Dashboard {
 	for _, o := range opts {
 		o(&c)
 	}
+	v := version.Get("")
 	srv := web.New(web.Config{
 		Source: &scrape.Handler{
-			H: metrics, Name: c.title, UserAgent: "promtop-dash/" + version(),
+			H: metrics, Name: c.title, UserAgent: "promtop-dash/" + v,
 			Timeout: min(c.interval, maxTimeout),
 		},
-		Interval: c.interval, History: c.history, Filter: c.filter, Denied: denied,
+		Interval: c.interval, History: c.history, Filter: c.filter, Denied: denied, Version: v,
 	})
 	srv.Start()
 	return &Dashboard{srv: srv, h: srv.Handler(c.allow)}
@@ -130,26 +131,4 @@ func (d *Dashboard) Close() error {
 	d.closed.Store(true)
 	d.srv.Close()
 	return nil
-}
-
-// version is promtop's module version as built into the program.
-func version() string {
-	const mod = "github.com/igorrius/promtop"
-	bi, ok := debug.ReadBuildInfo()
-	if !ok {
-		return "dev"
-	}
-	v := ""
-	if bi.Main.Path == mod {
-		v = bi.Main.Version
-	}
-	for _, d := range bi.Deps {
-		if d.Path == mod {
-			v = d.Version
-		}
-	}
-	if v == "" || v == "(devel)" {
-		return "dev"
-	}
-	return v
 }

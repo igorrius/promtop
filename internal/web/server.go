@@ -45,6 +45,7 @@ type Config struct {
 	Out      io.Writer
 	Denied   string // body of a 403; default "promtop only answers to localhost"
 	Fed      bool   // scrapes arrive through Ingest; Start runs no scrape loop
+	Version  string // promtop's version, shown next to the name
 }
 
 // Server scrapes the target and serves the dashboard.
@@ -366,6 +367,7 @@ func (s *Server) frame(o options) []byte {
 	}
 	fr := buildFrame(s.st, s.sections(o), time.Now())
 	fr.Source = s.cfg.Source.String()
+	fr.Version = s.cfg.Version
 	fr.Interval = s.cfg.Interval.Seconds()
 	fr.At = s.lastAt.UnixMilli()
 	fr.Took = s.lastDur.Round(time.Millisecond).String()
