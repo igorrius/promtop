@@ -69,6 +69,7 @@ button, input { font: inherit; color: inherit; }
   padding: 10px 20px; background: var(--panel); border-bottom: 1px solid var(--border); white-space: nowrap;
 }
 .pill { background: var(--accent); color: var(--pill-fg); font-weight: 700; padding: 1px 8px; border-radius: 6px; }
+.version { color: var(--dim); font-size: 0.85em; }
 .target { font-weight: 600; color: var(--title); }
 .source { color: var(--dim); overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .spacer { flex: 1; }

@@ -41,6 +41,12 @@ func TestRenderCommand(t *testing.T) {
 	}
 }
 
+func TestVersionCommand(t *testing.T) {
+	if code := Main([]string{"version"}, "v1.2.3"); code != 0 || version != "1.2.3" {
+		t.Errorf("exit %d, version %q", code, version)
+	}
+}
+
 func TestRecordCommand(t *testing.T) {
 	state := filepath.Join(t.TempDir(), "state")
 	if code := runRecord([]string{fixture}); code != 2 {

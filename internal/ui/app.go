@@ -39,6 +39,7 @@ type Config struct {
 	Width    int // --once: render width (0 = terminal or 120)
 	Out      io.Writer
 	WebAddr  string // listen address of the web dashboard the w key starts
+	Version  string // shown on the help screen and the web page
 }
 
 // App is the Bubble Tea model.
@@ -415,6 +416,7 @@ func (a *App) openWeb() {
 		srv := webui.New(webui.Config{
 			Source: a.cfg.Source, Interval: a.interval, History: a.cfg.History,
 			ShowAll: a.showAll, Filter: a.filterSrc, Addr: a.cfg.WebAddr, Fed: true,
+			Version: a.cfg.Version,
 		})
 		u, err := srv.Listen()
 		if err != nil {
@@ -641,7 +643,11 @@ var legend = []string{
 
 func (a *App) helpScreen() []string {
 	t := a.th
-	out := []string{"", "  " + t.bold(t.title, "promtop") + t.paint(t.dim, " — live terminal view of a Prometheus /metrics endpoint"), ""}
+	title := t.bold(t.title, "promtop")
+	if a.cfg.Version != "" {
+		title += " " + t.paint(t.accent, a.cfg.Version)
+	}
+	out := []string{"", "  " + title + t.paint(t.dim, " — live terminal view of a Prometheus /metrics endpoint"), ""}
 	for _, l := range legend {
 		out = append(out, "  "+t.paint(t.dim, l))
 	}

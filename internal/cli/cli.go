@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/igorrius/promtop/internal/ui"
+	buildinfo "github.com/igorrius/promtop/internal/version"
 	webui "github.com/igorrius/promtop/internal/web"
 )
 
@@ -26,6 +27,7 @@ Usage:
   promtop -web [flags] [target]     the same in the browser
   promtop render [flags] [target]   draw once into PNG, SVG, JSON or text
   promtop record -state f [target]  add a scrape to a history file (for cron)
+  promtop version                   print the version
 
 Run "promtop render -h" or "promtop record -h" for their flags.
 
@@ -41,9 +43,12 @@ Flags:
 // Main runs promtop with the given arguments (without the program name)
 // and returns the exit code.
 func Main(args []string, ver string) int {
-	version = ver
+	version = buildinfo.Get(ver)
 	if len(args) > 0 {
 		switch args[0] {
+		case "version":
+			fmt.Println("promtop", version)
+			return 0
 		case "render":
 			return runRender(args[1:])
 		case "record":
@@ -95,7 +100,7 @@ func runLive(args []string) int {
 	if *web {
 		srv := webui.New(webui.Config{
 			Source: src, Interval: *sf.interval, History: *history, ShowAll: *all, Filter: *filter,
-			Addr: *webAddr, Open: true, Out: os.Stderr,
+			Addr: *webAddr, Open: true, Out: os.Stderr, Version: version,
 		})
 		if err := srv.Run(ctx); err != nil {
 			return fail(err)
@@ -109,7 +114,7 @@ func runLive(args []string) int {
 	}
 	app := ui.New(ui.Config{
 		Source: src, Interval: *sf.interval, History: *history, Color: color,
-		ShowAll: *all, Filter: *filter, Width: *width, WebAddr: *webAddr,
+		ShowAll: *all, Filter: *filter, Width: *width, WebAddr: *webAddr, Version: version,
 	})
 	if *once {
 		err = app.RunOnce(ctx)
