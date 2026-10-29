@@ -10,7 +10,7 @@ type keyMap struct {
 	Open, Back             key.Binding
 	Filter, Clear, All     key.Binding
 	Pause, Longer, Shorter key.Binding
-	Help, Quit             key.Binding
+	Web, Help, Quit        key.Binding
 
 	// Detail view
 	Series, Line key.Binding
@@ -39,8 +39,9 @@ func newKeyMap() keyMap {
 		Pause:   b([]string{"p", "space"}, "p", "pause"),
 		Longer:  b([]string{"+", "="}, "+", "longer interval"),
 		Shorter: b([]string{"-", "_"}, "-", "shorter interval"),
+		Web:     b([]string{"w", "W"}, "w", "web"),
 		Help:    b([]string{"?"}, "?", "help"),
-		Quit:    b([]string{"q", "ctrl+c"}, "q", "quit"),
+		Quit:    b([]string{"q", "Q", "ctrl+c"}, "q", "quit"),
 		Series:  b([]string{"up", "down"}, "↑↓", "series"),
 		Line:    b([]string{"left", "right", "tab"}, "←→", "line"),
 	}
@@ -56,7 +57,7 @@ var (
 
 func (k keyMap) gridHelp() []key.Binding {
 	return []key.Binding{
-		move, k.Open, k.Filter, k.All, sections, k.Pause, interval, k.Help, k.Quit,
+		move, k.Open, k.Filter, k.All, sections, k.Pause, interval, k.Web, k.Help, k.Quit,
 	}
 }
 
@@ -69,6 +70,6 @@ func (k keyMap) fullHelp() [][]key.Binding {
 		{k.Up, k.Down, k.Left, k.Right, k.PgUp, k.PgDown},
 		{k.Home, k.End, k.PrevSec, k.NextSec, k.Open, k.Back},
 		{k.Filter, k.Clear, k.All, k.Pause, k.Longer, k.Shorter},
-		{k.Help, k.Quit},
+		{k.Web, k.Help, k.Quit},
 	}
 }

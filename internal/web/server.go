@@ -44,6 +44,7 @@ type Config struct {
 	Open     bool   // open the page in the default browser
 	Out      io.Writer
 	Denied   string // body of a 403; default "promtop only answers to localhost"
+	Fed      bool   // scrapes arrive through Ingest; Start runs no scrape loop
 }
 
 // Server scrapes the target and serves the dashboard.
@@ -60,6 +61,9 @@ type Server struct {
 
 	cacheSeq int
 	cache    map[string][]byte // frame JSON by options, for the current seq
+
+	ln   net.Listener // set by Listen
+	page string
 
 	start sync.Once
 	stop  sync.Once
@@ -81,7 +85,9 @@ func New(cfg Config) *Server {
 // Start begins scraping in the background; calls after the first do nothing.
 func (s *Server) Start() {
 	s.start.Do(func() {
-		s.wg.Go(s.scrapeLoop)
+		if !s.cfg.Fed {
+			s.wg.Go(s.scrapeLoop)
+		}
 	})
 }
 
@@ -94,9 +100,28 @@ func (s *Server) Close() {
 
 // Run listens, opens the browser if asked and serves until ctx is done.
 func (s *Server) Run(ctx context.Context) error {
-	ln, err := net.Listen("tcp", s.cfg.Addr)
+	page, err := s.Listen()
 	if err != nil {
 		return err
+	}
+	_, _ = fmt.Fprintf(s.cfg.Out, "promtop: dashboard for %s at %s (Ctrl+C to stop)\n", s.cfg.Source, page)
+	if addr := s.ln.Addr().(*net.TCPAddr); !addr.IP.IsLoopback() {
+		_, _ = fmt.Fprintf(s.cfg.Out, "promtop: listening on %s — anyone who can reach it sees these metrics\n", addr)
+	}
+	if s.cfg.Open {
+		if err := OpenBrowser(page); err != nil {
+			_, _ = fmt.Fprintf(s.cfg.Out, "promtop: could not open a browser (%v); open %s yourself\n", err, page)
+		}
+	}
+	return s.Serve(ctx)
+}
+
+// Listen binds the configured address and returns the page's URL. Serve
+// then answers on it.
+func (s *Server) Listen() (string, error) {
+	ln, err := net.Listen("tcp", s.cfg.Addr)
+	if err != nil {
+		return "", err
 	}
 	addr := ln.Addr().(*net.TCPAddr)
 	host := addr.IP.String()
@@ -107,13 +132,18 @@ func (s *Server) Run(ctx context.Context) error {
 	if q := s.query(); q != "" {
 		page += "#" + q
 	}
-	_, _ = fmt.Fprintf(s.cfg.Out, "promtop: dashboard for %s at %s (Ctrl+C to stop)\n", s.cfg.Source, page)
-	if !addr.IP.IsLoopback() {
-		_, _ = fmt.Fprintf(s.cfg.Out, "promtop: listening on %s — anyone who can reach it sees these metrics\n", addr)
-	}
+	s.ln, s.page = ln, page
+	return page, nil
+}
 
+// Serve starts scraping and serves on the listener from Listen until ctx is
+// done. A loopback listener only answers to loopback host names.
+func (s *Server) Serve(ctx context.Context) error {
+	if s.ln == nil {
+		return errors.New("web: Serve before Listen")
+	}
 	var allow func(*http.Request) bool
-	if addr.IP.IsLoopback() {
+	if s.ln.Addr().(*net.TCPAddr).IP.IsLoopback() {
 		allow = HostOnly
 	}
 	s.Start()
@@ -125,12 +155,7 @@ func (s *Server) Run(ctx context.Context) error {
 		defer cancel()
 		_ = srv.Shutdown(sctx)
 	}()
-	if s.cfg.Open {
-		if err := openBrowser(page); err != nil {
-			_, _ = fmt.Fprintf(s.cfg.Out, "promtop: could not open a browser (%v); open %s yourself\n", err, page)
-		}
-	}
-	if err := srv.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
+	if err := srv.Serve(s.ln); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil
@@ -168,6 +193,19 @@ func (s *Server) scrapeLoop() {
 		case <-t.C:
 		}
 	}
+}
+
+// Ingest adds a scrape made elsewhere; it is how a Fed server gets data.
+// The families are only read, so the caller may keep using them.
+func (s *Server) Ingest(r scrape.Result) { s.ingest(r) }
+
+// SetInterval updates the scrape interval the page shows; for a Fed server
+// whose feeder changes its pace.
+func (s *Server) SetInterval(d time.Duration) {
+	s.mu.Lock()
+	s.cfg.Interval = d
+	s.seq++ // drop cached frames
+	s.mu.Unlock()
 }
 
 func (s *Server) ingest(r scrape.Result) {
@@ -441,9 +479,9 @@ func (s *Server) panel(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(append(body, '\n'))
 }
 
-// openBrowser opens url with $BROWSER when set (BROWSER=true turns it off),
+// OpenBrowser opens url with $BROWSER when set (BROWSER=true turns it off),
 // otherwise with the platform's default handler.
-func openBrowser(url string) error {
+func OpenBrowser(url string) error {
 	var cmd *exec.Cmd
 	switch b := os.Getenv("BROWSER"); {
 	case b != "":

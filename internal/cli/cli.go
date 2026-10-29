@@ -69,7 +69,7 @@ func runLive(args []string) int {
 		filter  = fs.String("f", "", "only show metrics matching this regex")
 		showVer = fs.Bool("version", false, "print version and exit")
 		web     = fs.Bool("web", false, "serve the dashboard over HTTP and open it in the browser instead of the terminal UI")
-		webAddr = fs.String("web-addr", "127.0.0.1:0", "listen address for -web (default: a free port on localhost)")
+		webAddr = fs.String("web-addr", "127.0.0.1:0", "listen address for -web and the w key (default: a free port on localhost)")
 	)
 	fs.Usage = func() {
 		_, _ = fmt.Fprint(fs.Output(), usage)
@@ -109,7 +109,7 @@ func runLive(args []string) int {
 	}
 	app := ui.New(ui.Config{
 		Source: src, Interval: *sf.interval, History: *history, Color: color,
-		ShowAll: *all, Filter: *filter, Width: *width,
+		ShowAll: *all, Filter: *filter, Width: *width, WebAddr: *webAddr,
 	})
 	if *once {
 		err = app.RunOnce(ctx)
