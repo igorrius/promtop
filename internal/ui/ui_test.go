@@ -2,7 +2,9 @@ package ui
 
 import (
 	"fmt"
+	"io"
 	"math"
+	"net/http"
 	"os"
 	"strings"
 	"testing"
@@ -374,5 +376,59 @@ func TestDetailAxis(t *testing.T) {
 	}
 	if strings.Contains(got, "histogram · histogram") {
 		t.Error("type and widget repeated in the title")
+	}
+}
+
+func TestQuitAnyCase(t *testing.T) {
+	for _, k := range []string{"q", "Q"} {
+		a := newTestApp(t, 120, 40)
+		if _, cmd := a.Update(tea.KeyPressMsg{Code: []rune(k)[0], Text: k}); cmd == nil {
+			t.Errorf("%s did not quit", k)
+		}
+		press(a, "enter", k)
+		if a.detail != nil {
+			t.Errorf("%s did not close details", k)
+		}
+	}
+}
+
+func TestWebKey(t *testing.T) {
+	t.Setenv("BROWSER", "true")
+	a := newTestApp(t, 120, 40)
+	a.cfg.WebAddr = "127.0.0.1:0"
+	a.ctx = t.Context()
+	press(a, "w")
+	if a.web == nil || a.webErr != nil {
+		t.Fatalf("w: web = %v, err = %v", a.web, a.webErr)
+	}
+	defer a.web.Close()
+	if !strings.Contains(a.footer(), a.webURL) {
+		t.Errorf("footer does not show %s: %q", a.webURL, a.footer())
+	}
+	get := func(path string) string {
+		t.Helper()
+		res, err := http.Get(strings.TrimSuffix(a.webURL, "/") + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = res.Body.Close() }()
+		b, _ := io.ReadAll(res.Body)
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("%s: %d %s", path, res.StatusCode, b)
+		}
+		return string(b)
+	}
+	// Seeded with the last scrape, then fed with ours.
+	if body := get("/api/panel?id=demo_requests_total"); !strings.Contains(body, "demo_requests_total") {
+		t.Errorf("panel = %s", body)
+	}
+	srv := a.web
+	press(a, "w")
+	if a.web != srv {
+		t.Error("second w started another server")
+	}
+	press(a, "+")
+	if !strings.Contains(get("/api/panel?id=demo_requests_total"), fmt.Sprintf(`"interval":%g`, a.interval.Seconds())) {
+		t.Error("interval change did not reach the web dashboard")
 	}
 }

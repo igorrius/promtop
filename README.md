@@ -34,6 +34,10 @@ metric (`#filter=http&metric=…`), so a link reopens the same view. The page on
 `localhost`; `-web-addr 0.0.0.0:9999` exposes it to the network on purpose. `$BROWSER` picks the
 browser (`BROWSER=true` just prints the URL).
 
+From the terminal UI, `w` starts the same page on the side and opens it; the footer shows its
+URL. It is fed by the terminal's scrapes, so it follows its interval and pause, and its history
+starts at the press.
+
 ![promtop web dashboard on the bundled demo](docs/web.png)
 
 ## Embed in your service
@@ -218,6 +222,7 @@ Layout:
 | `a`                   | show all metrics / curated                      |
 | `p`, `space`          | pause                                           |
 | `+` / `-`             | longer / shorter scrape interval                |
+| `w`                   | open the web dashboard (started on first press) |
 | `?`                   | help                                            |
 | `esc`, `q`            | back / quit                                     |
 
@@ -237,7 +242,7 @@ wheel, right-click to go back.
 -width n          width for -once
 -no-color         disable colours (NO_COLOR is honoured too)
 -web              serve the dashboard over HTTP and open it in the browser
--web-addr addr    listen address for -web (default 127.0.0.1:0, a free local port)
+-web-addr addr    listen address for -web and the w key (default 127.0.0.1:0, a free local port)
 ```
 
 `promtop render -h` and `promtop record -h` list the flags of the snapshot commands.

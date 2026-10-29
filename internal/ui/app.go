@@ -21,9 +21,11 @@ import (
 	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/term"
 
+	"github.com/igorrius/promtop/internal/expo"
 	"github.com/igorrius/promtop/internal/scrape"
 	"github.com/igorrius/promtop/internal/store"
 	"github.com/igorrius/promtop/internal/view"
+	webui "github.com/igorrius/promtop/internal/web"
 )
 
 // Config configures the application.
@@ -36,6 +38,7 @@ type Config struct {
 	Filter   string
 	Width    int // --once: render width (0 = terminal or 120)
 	Out      io.Writer
+	WebAddr  string // listen address of the web dashboard the w key starts
 }
 
 // App is the Bubble Tea model.
@@ -72,6 +75,11 @@ type App struct {
 	lastDur  time.Duration
 	lastAt   time.Time
 	inflight bool
+	lastFams []*expo.Family // the last good scrape, to seed the web dashboard
+
+	web    *webui.Server // started by the w key, fed with our scrapes
+	webURL string
+	webErr error
 }
 
 type (
@@ -144,6 +152,7 @@ func (a *App) ingest(r scrape.Result) {
 		return
 	}
 	a.lastErr = nil
+	a.lastFams = r.Families
 	a.st.Ingest(r.Families, r.At)
 	a.dirty = true
 	if n := len(a.st.Families); n != a.families {
@@ -252,6 +261,8 @@ func (a *App) Run(ctx context.Context) error {
 	if !ok || !term.IsTerminal(f.Fd()) {
 		return errors.New("stdout is not a terminal; use --once for a one-shot snapshot")
 	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel() // stops the web dashboard too
 	a.ctx = ctx
 	opts := []tea.ProgramOption{tea.WithContext(ctx), tea.WithOutput(a.cfg.Out)}
 	if !a.cfg.Color {
@@ -298,6 +309,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case scrapeMsg:
 		a.inflight = false
 		a.ingest(scrape.Result(msg))
+		if a.web != nil {
+			a.web.Ingest(scrape.Result(msg))
+		}
 	case tea.KeyPressMsg:
 		cmd = a.handleKey(msg)
 	case tea.MouseClickMsg:
@@ -347,7 +361,7 @@ func (a *App) handleKey(k tea.KeyPressMsg) tea.Cmd {
 	}
 	switch {
 	case key.Matches(k, km.Quit):
-		if a.detail != nil && k.String() == "q" {
+		if a.detail != nil && k.String() != "ctrl+c" {
 			a.detail = nil
 			return nil
 		}
@@ -362,9 +376,11 @@ func (a *App) handleKey(k tea.KeyPressMsg) tea.Cmd {
 		a.showAll = !a.showAll
 		a.dirty = true
 	case key.Matches(k, km.Longer):
-		a.interval = nextInterval(a.interval, 1)
+		a.setInterval(nextInterval(a.interval, 1))
 	case key.Matches(k, km.Shorter):
-		a.interval = nextInterval(a.interval, -1)
+		a.setInterval(nextInterval(a.interval, -1))
+	case key.Matches(k, km.Web):
+		a.openWeb()
 	case key.Matches(k, km.Help):
 		a.showHelp = true
 	case key.Matches(k, km.Clear):
@@ -383,6 +399,40 @@ func (a *App) handleKey(k tea.KeyPressMsg) tea.Cmd {
 		a.gridKey(k)
 	}
 	return nil
+}
+
+func (a *App) setInterval(d time.Duration) {
+	a.interval = d
+	if a.web != nil {
+		a.web.SetInterval(d)
+	}
+}
+
+// openWeb starts the web dashboard on the first press and opens it in the
+// browser. The page shows the scrapes this app makes from then on.
+func (a *App) openWeb() {
+	if a.web == nil {
+		srv := webui.New(webui.Config{
+			Source: a.cfg.Source, Interval: a.interval, History: a.cfg.History,
+			ShowAll: a.showAll, Filter: a.filterSrc, Addr: a.cfg.WebAddr, Fed: true,
+		})
+		u, err := srv.Listen()
+		if err != nil {
+			a.webErr = err
+			return
+		}
+		a.web, a.webURL = srv, u
+		ctx := a.ctx
+		go func() { _ = srv.Serve(ctx) }()
+		// The latest scrape, so the page has something to show at once.
+		if a.lastFams != nil {
+			srv.Ingest(scrape.Result{Families: a.lastFams, At: a.lastAt, Duration: a.lastDur})
+		}
+	}
+	a.webErr = nil
+	if err := webui.OpenBrowser(a.webURL); err != nil {
+		a.webErr = fmt.Errorf("no browser (%w); open %s", err, a.webURL)
+	}
 }
 
 func (a *App) gridKey(k tea.KeyPressMsg) {
@@ -559,10 +609,16 @@ func (a *App) footer() string {
 	}
 	bindings := a.keys.gridHelp()
 	prefix := ""
+	switch {
+	case a.webErr != nil:
+		prefix = t.bold(t.err, "web: "+a.webErr.Error()) + "  "
+	case a.web != nil:
+		prefix = t.bold(t.ok, "web ") + t.paint(t.dim, a.webURL) + "  "
+	}
 	if a.detail != nil {
 		bindings = a.keys.detailHelp()
 	} else if a.filter != nil {
-		prefix = t.bold(t.warn, "filter: "+a.input.Value()) + "  " + t.bold(t.accent, "c") + t.paint(t.dim, " clear") + "  "
+		prefix += t.bold(t.warn, "filter: "+a.input.Value()) + "  " + t.bold(t.accent, "c") + t.paint(t.dim, " clear") + "  "
 	}
 	a.help.SetWidth(a.w - 2 - vlen(prefix))
 	return " " + prefix + a.help.ShortHelpView(bindings)
