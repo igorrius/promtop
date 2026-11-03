@@ -111,6 +111,13 @@ err := d.Render(ctx, &png, dash.RenderOptions{Format: dash.FormatPNG, Metrics: [
 // FormatSummary with Notable: true gives a model what stands out, in a few hundred bytes
 ```
 
+![dash.Render: a few metrics of the demo service, as a bot sends them](docs/dash-render.png)
+
+`Metrics` takes name globs, `Sections` keeps whole sections by key or by a word of their title
+(`"runtime"` is the Go runtime section), and `ShowAll` adds what the dashboard hides by default
+(idle metrics, runtime noise), as `promtop render -a`. `d.Sections(ctx)` lists the sections there
+are, for a bot's command hints.
+
 
 ## Snapshots for chats, bots and reports
 
