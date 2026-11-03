@@ -57,6 +57,8 @@ type Server struct {
 	lastErr error
 	lastDur time.Duration
 	lastAt  time.Time
+	firstOK time.Time // first scrape that succeeded
+	lastOK  time.Time // latest scrape that succeeded
 	seq     int
 	subs    map[chan struct{}]struct{}
 
@@ -196,6 +198,33 @@ func (s *Server) scrapeLoop() {
 	}
 }
 
+// History is what Draw hands its function: the store and the window of
+// scrapes it holds.
+type History struct {
+	Store    *store.Store
+	From, To time.Time // first and latest scrape that succeeded
+	Interval time.Duration
+}
+
+// Draw calls fn with the history, holding the lock so no scrape changes
+// it meanwhile; fn must not keep the store. With no scrape yet it reads
+// the source once first, and returns that scrape's error if it fails.
+func (s *Server) Draw(ctx context.Context, fn func(History) error) error {
+	s.mu.Lock()
+	empty := s.st.Scrapes == 0
+	s.mu.Unlock()
+	if empty {
+		r := s.cfg.Source.Scrape(ctx)
+		if r.Err != nil {
+			return r.Err
+		}
+		s.ingest(r)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return fn(History{Store: s.st, From: s.firstOK, To: s.lastOK, Interval: s.cfg.Interval})
+}
+
 // Ingest adds a scrape made elsewhere; it is how a Fed server gets data.
 // The families are only read, so the caller may keep using them.
 func (s *Server) Ingest(r scrape.Result) { s.ingest(r) }
@@ -214,6 +243,10 @@ func (s *Server) ingest(r scrape.Result) {
 	s.lastDur, s.lastAt, s.lastErr = r.Duration, r.At, r.Err
 	if r.Err == nil {
 		s.st.Ingest(r.Families, r.At)
+		if s.firstOK.IsZero() {
+			s.firstOK = r.At
+		}
+		s.lastOK = r.At
 	}
 	s.seq++
 	for ch := range s.subs {

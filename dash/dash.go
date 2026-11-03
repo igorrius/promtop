@@ -89,6 +89,7 @@ func Title(s string) Option { return func(c *config) { c.title = s } }
 type Dashboard struct {
 	srv    *web.Server
 	h      http.Handler
+	title  string
 	closed atomic.Bool
 }
 
@@ -109,7 +110,7 @@ func New(metrics http.Handler, opts ...Option) *Dashboard {
 		Interval: c.interval, History: c.history, Filter: c.filter, Denied: denied, Version: v,
 	})
 	srv.Start()
-	return &Dashboard{srv: srv, h: srv.Handler(c.allow)}
+	return &Dashboard{srv: srv, h: srv.Handler(c.allow), title: c.title}
 }
 
 // ServeHTTP serves the page and its API.

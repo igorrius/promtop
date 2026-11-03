@@ -101,6 +101,17 @@ Do not `defer d.Close()` in a function that only builds the router: the dashboar
 before the first request and answer 503. The package needs Go 1.27.3 or later. A runnable service
 with client_golang is in [`examples/embedded`](examples/embedded) (`make embedded`).
 
+`Render` draws the same history without a browser: a PNG to send to a chat, or the
+[`summary`](#for-ai-agents-and-scripts) document for a model, with no network and no `/metrics` listening.
+A bot can answer "show me the metrics" this way:
+
+```go
+var png bytes.Buffer
+err := d.Render(ctx, &png, dash.RenderOptions{Format: dash.FormatPNG, Metrics: []string{"orders_*"}})
+// FormatSummary with Notable: true gives a model what stands out, in a few hundred bytes
+```
+
+
 ## Snapshots for chats, bots and reports
 
 `promtop render` reads the metrics once and draws them into a file — PNG or SVG to send to a
