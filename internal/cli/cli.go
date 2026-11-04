@@ -27,6 +27,7 @@ Usage:
   promtop -web [flags] [target]     the same in the browser
   promtop render [flags] [target]   draw once into PNG, SVG, JSON or text
   promtop record -state f [target]  add a scrape to a history file (for cron)
+  promtop update                    replace this binary with the latest release
   promtop version                   print the version
 
 Run "promtop render -h" or "promtop record -h" for their flags.
@@ -53,6 +54,8 @@ func Main(args []string, ver string) int {
 			return runRender(args[1:])
 		case "record":
 			return runRecord(args[1:])
+		case "update":
+			return runUpdate(args[1:])
 		}
 	}
 	return runLive(args)

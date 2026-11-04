@@ -215,11 +215,51 @@ cp -r skills/analyzing-metrics-with-promtop ~/.claude/skills/
 
 ## Install
 
+Linux, macOS, FreeBSD:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/igorrius/promtop/main/scripts/install.sh | sh
+```
+
+Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/igorrius/promtop/main/scripts/install.ps1 | iex
+```
+
+**To update, run `promtop update`**, or the same command again: it does nothing if the latest
+release is already there. `promtop update` updates the binary you ran, wherever it is, and
+`PROMTOP_VERSION` works with it too. On Windows the running `promtop.exe` is renamed to
+`promtop.exe.old` to make way for the new one, and the next update removes that file. A copy
+from a Linux package is refused: update it with the package manager.
+
+The scripts verify the download against the release's `checksums.txt`, need no root or
+administrator rights, and leave the old binary in place if anything fails. An existing promtop
+on `PATH` is replaced where it stands, if that directory is writable. Otherwise the binary goes to
+`~/.local/bin` (`/usr/local/bin` for root) or `%LOCALAPPDATA%\Programs\promtop`; the Windows
+script adds that directory to your `PATH`, the shell script tells you if you need to. A copy
+installed from a Linux package in `/usr/bin` is left to the package manager, so update it
+with a new package or remove it, or it may keep running instead.
+
+Two environment variables change this:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/igorrius/promtop/main/scripts/install.sh |
+  PROMTOP_VERSION=v0.5.0 PROMTOP_INSTALL_DIR=/opt/bin sh
+```
+
+```powershell
+$env:PROMTOP_VERSION = 'v0.5.0'; $env:PROMTOP_INSTALL_DIR = 'C:\Tools'
+irm https://raw.githubusercontent.com/igorrius/promtop/main/scripts/install.ps1 | iex
+```
+
+With Go:
+
 ```sh
 go install github.com/igorrius/promtop@latest
 ```
 
-or download a ready-made build from [Releases](https://github.com/igorrius/promtop/releases):
+Or download a ready-made build from [Releases](https://github.com/igorrius/promtop/releases):
 archives for Linux, macOS, Windows and FreeBSD (amd64, arm64, armv7), and Linux packages:
 
 ```sh

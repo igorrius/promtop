@@ -44,6 +44,71 @@ jobs:
         with:
           version: v2.15.0
 
+  # The install scripts and "promtop update" for real, against the published
+  # releases. Once per change on main: not on pull requests, and a pushed tag does
+  # not start this workflow at all (its release has no files yet at that moment).
+  install:
+    if: github.event_name == 'push'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # An old version so that the update has to replace it, and the scripts of this
+      # commit: the raw URL of a branch can lag behind by minutes.
+      - name: build a binary to update
+        shell: bash
+        run: >-
+          go build -o "$RUNNER_TEMP/update/promtop$(go env GOEXE)"
+          -ldflags "-X main.version=0.0.1
+          -X github.com/igorrius/promtop/internal/cli.installScriptBase=https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/scripts/"
+          .
+      - name: install.sh, promtop update
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -eu
+          bin=$RUNNER_TEMP/bin/promtop
+          export PROMTOP_INSTALL_DIR=$RUNNER_TEMP/bin
+          sh scripts/install.sh
+          latest=$("$bin" -version)
+          PROMTOP_VERSION=v0.5.0 sh scripts/install.sh
+          test "$("$bin" -version)" = "promtop 0.5.0"
+          sh scripts/install.sh
+          test "$("$bin" -version)" = "$latest"
+          unset PROMTOP_INSTALL_DIR
+          updated=$RUNNER_TEMP/update/promtop
+          test "$("$updated" -version)" = "promtop 0.0.1"
+          "$updated" update
+          test "$("$updated" -version)" = "$latest"
+      # Windows PowerShell 5.1, the oldest supported and what promtop update starts.
+      - name: install.ps1, promtop update
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $script = Get-Content -Raw scripts\install.ps1
+          $bin = "$env:LOCALAPPDATA\Programs\promtop\promtop.exe"
+          $script | Invoke-Expression
+          $latest = & $bin -version
+          if ([Environment]::GetEnvironmentVariable('Path', 'User') -notlike '*Programs\promtop*') { throw 'not added to the user PATH' }
+          $env:PROMTOP_VERSION = 'v0.5.0'
+          $script | Invoke-Expression
+          if ((& $bin -version) -ne 'promtop 0.5.0') { throw 'the pinned version was not installed' }
+          $env:PROMTOP_VERSION = $null
+          $script | Invoke-Expression
+          if ((& $bin -version) -ne $latest) { throw 'not updated to the latest version' }
+          $updated = "$env:RUNNER_TEMP\update\promtop.exe"
+          if ((& $updated -version) -ne 'promtop 0.0.1') { throw 'wrong version to start from' }
+          & $updated update
+          if ($LASTEXITCODE -ne 0) { throw "promtop update: exit $LASTEXITCODE" }
+          if ((& $updated -version) -ne $latest) { throw 'promtop update did not replace the binary' }
+
   # Builds every release archive and package without publishing, so a broken
   # GoReleaser config shows up before tagging. Binaries of each main build are
   # downloadable from the run's artifacts.
