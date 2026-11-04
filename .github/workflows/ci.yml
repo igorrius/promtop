@@ -108,6 +108,7 @@ jobs:
           & $updated update
           if ($LASTEXITCODE -ne 0) { throw "promtop update: exit $LASTEXITCODE" }
           if ((& $updated -version) -ne $latest) { throw 'promtop update did not replace the binary' }
+          if ([Environment]::GetEnvironmentVariable('Path', 'User') -like "*$env:RUNNER_TEMP*") { throw 'promtop update changed the user PATH' }
 
   # Builds every release archive and package without publishing, so a broken
   # GoReleaser config shows up before tagging. Binaries of each main build are

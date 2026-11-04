@@ -78,7 +78,9 @@ function Install-Promtop {
         [Environment]::SetEnvironmentVariable('PROMTOP_INSTALL_NOTIFY', $null, 'User')
     }
 
-    function Update-PathEntry([string]$Dir) {
+    # Only the default directory goes on the user's PATH for good. One named by hand,
+    # as promtop update does for wherever it was run from, may be anything: Downloads.
+    function Update-PathEntry([string]$Dir, [bool]$AddToPath) {
         $target = Join-Path $Dir 'promtop.exe'
         $found = Find-Promtop
         if ($found -and $found -ne $target) {
@@ -87,9 +89,13 @@ function Install-Promtop {
         $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
         $entries = @("$userPath" -split ';' | ForEach-Object { $_.TrimEnd('\') })
         if ($entries -notcontains $Dir.TrimEnd('\') -and -not ($found -eq $target)) {
-            Add-ToUserPath $Dir
-            $env:Path = "$env:Path;$Dir"
-            Write-Host "Added $Dir to your PATH; other open terminals need a restart to see it"
+            if ($AddToPath) {
+                Add-ToUserPath $Dir
+                $env:Path = "$env:Path;$Dir"
+                Write-Host "Added $Dir to your PATH; other open terminals need a restart to see it"
+            } elseif (-not $found) {
+                Write-Host "Add $Dir to your PATH to run it by name"
+            }
         }
     }
 
@@ -125,12 +131,14 @@ function Install-Promtop {
         $version = ($archive -split '_')[1]
 
         $dir = $env:PROMTOP_INSTALL_DIR
+        $addToPath = $false
         if (-not $dir) {
             $existing = Find-Promtop
             if ($existing -and (Test-Writable (Split-Path $existing))) {
                 $dir = Split-Path $existing
             } else {
                 $dir = Join-Path $env:LOCALAPPDATA 'Programs\promtop'
+                $addToPath = $true
             }
         }
         $dir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($dir).TrimEnd('\', '/')
@@ -140,7 +148,7 @@ function Install-Promtop {
         if (Test-Path $target) { $current = Get-PromtopVersion $target }
         if ($current -eq $version) {
             Write-Host "promtop $version is already installed in $dir"
-            Update-PathEntry $dir
+            Update-PathEntry $dir $addToPath
             return
         }
 
@@ -176,7 +184,7 @@ function Install-Promtop {
         } else {
             Write-Host "promtop $version installed in $dir"
         }
-        Update-PathEntry $dir
+        Update-PathEntry $dir $addToPath
     } finally {
         Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
         if ($staged) { Remove-Item -Force $staged -ErrorAction SilentlyContinue }
