@@ -52,6 +52,10 @@ type Config struct {
 type Server struct {
 	cfg Config
 
+	// scraping is held while the source is read: the loop and Draw take
+	// turns, since a metrics handler answers one scrape at a time.
+	scraping chan struct{}
+
 	mu      sync.Mutex
 	st      *store.Store
 	lastErr error
@@ -81,7 +85,7 @@ func New(cfg Config) *Server {
 	}
 	return &Server{
 		cfg: cfg, st: store.New(cfg.History), subs: map[chan struct{}]struct{}{},
-		cache: map[string][]byte{}, done: make(chan struct{}),
+		cache: map[string][]byte{}, done: make(chan struct{}), scraping: make(chan struct{}, 1),
 	}
 }
 
@@ -189,7 +193,13 @@ func (s *Server) scrapeLoop() {
 	t := time.NewTicker(s.cfg.Interval)
 	defer t.Stop()
 	for {
+		select {
+		case s.scraping <- struct{}{}:
+		case <-s.done:
+			return
+		}
 		s.ingest(s.cfg.Source.Scrape(ctx))
+		<-s.scraping
 		select {
 		case <-s.done:
 			return
@@ -208,21 +218,39 @@ type History struct {
 
 // Draw calls fn with the history, holding the lock so no scrape changes
 // it meanwhile; fn must not keep the store. With no scrape yet it reads
-// the source once first, and returns that scrape's error if it fails.
+// the source once first, and returns that scrape's error if it fails; a
+// scrape of the loop in progress is waited for instead.
 func (s *Server) Draw(ctx context.Context, fn func(History) error) error {
-	s.mu.Lock()
-	empty := s.st.Scrapes == 0
-	s.mu.Unlock()
-	if empty {
-		r := s.cfg.Source.Scrape(ctx)
-		if r.Err != nil {
-			return r.Err
+	if s.empty() {
+		select {
+		case s.scraping <- struct{}{}:
+		case <-ctx.Done():
+			return ctx.Err()
 		}
-		s.ingest(r)
+		err := func() error {
+			defer func() { <-s.scraping }()
+			if !s.empty() { // the loop's scrape just landed
+				return nil
+			}
+			r := s.cfg.Source.Scrape(ctx)
+			if r.Err == nil {
+				s.ingest(r)
+			}
+			return r.Err
+		}()
+		if err != nil {
+			return err
+		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return fn(History{Store: s.st, From: s.firstOK, To: s.lastOK, Interval: s.cfg.Interval})
+}
+
+func (s *Server) empty() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.st.Scrapes == 0
 }
 
 // Ingest adds a scrape made elsewhere; it is how a Fed server gets data.

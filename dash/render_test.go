@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -36,6 +37,34 @@ func TestRenderSummaryNotable(t *testing.T) {
 	}
 	if err := json.Unmarshal(b.Bytes(), &doc); err != nil || doc.Schema != "promtop.summary/v1" {
 		t.Fatalf("summary %s: %v", b.String(), err)
+	}
+}
+
+// Render called while the loop's first scrape is still in the handler waits
+// for that scrape instead of failing on a handler that is busy.
+func TestRenderDuringFirstScrape(t *testing.T) {
+	entered, release := make(chan struct{}), make(chan struct{})
+	var first sync.Once
+	h := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		first.Do(func() { close(entered); <-release })
+		_, _ = io.WriteString(w, "# TYPE app_up gauge\napp_up 1\n")
+	})
+	d := New(h, Interval(time.Hour))
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	defer func() { unblock(); _ = d.Close() }()
+	<-entered
+
+	errc := make(chan error, 1)
+	go func() { errc <- d.Render(t.Context(), io.Discard, RenderOptions{Format: FormatSummary}) }()
+	select {
+	case err := <-errc:
+		t.Fatalf("Render returned during the loop's first scrape: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	unblock()
+	if err := <-errc; err != nil {
+		t.Fatal(err)
 	}
 }
 
