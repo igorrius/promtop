@@ -60,7 +60,9 @@ Full field list: `reference.md` next to this file.
 - **Reporting "no trend" from a 2-scrape run.** Without `-for` there is no `trend`; sample a minute.
 - **Treating `notable` as a verdict.** It is a deterministic shortlist; check each item against the
   question. Garbage-collected heaps (`*heap*`, `jvm_memory_used`) never get trend notes: they
-  climb until each GC. Look for leaks in `process_resident_memory_bytes`.
+  climb until each GC. Nor do the runtime's allocation, free and GC counts (`go_memstats_mallocs_total`,
+  `jvm_gc_collection_seconds`...): they follow the work. GC pause times keep theirs. Look for leaks
+  in `process_resident_memory_bytes`.
 - **Calling a load swing a fault.** When traffic, CPU, latency and pools all rise or fall by a
   similar amount together, the load changed; a short window may catch one phase of a cycle.
   Faults show up as `down`, `errors`, `near_limit`, or one series moving against the rest.

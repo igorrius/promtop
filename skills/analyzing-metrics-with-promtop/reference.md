@@ -57,7 +57,12 @@ Poisson noise (3σ of the counts in a third). Gauges, quantiles and other rates 
 they wobble within the thirds (Welch, 3σ), which needs 6 samples (`-for 12s` at the default
 `-i 2s`); quantiles also need 20 observations per third. Garbage-collected heap gauges (names with
 `heap`, `go_memstats_alloc_bytes`, `go_memory_used*`, `jvm_memory_used*`) get no trend notes: they
-climb until each collection.
+climb until each collection. Neither do the runtime's counts of its own work, which follow the
+service's load in bursts: allocations, frees and collections per second
+(`go_memstats_{mallocs,frees,alloc_bytes}_total`, `go_memory_{allocations,allocated_bytes}_total`,
+`go_gc_cycles_*`, `jvm_memory_pool_allocated_bytes_total`, `jvm_gc_memory_{allocated,promoted}_bytes_total`,
+the collection rate of `jvm_gc_collection_seconds` and `jvm_gc_pause_seconds`). Their `trend` stays;
+GC pause times (`go_gc_duration_seconds` quantiles, `jvm_gc_pause_seconds_max`) keep their notes.
 
 ## Metrics
 
