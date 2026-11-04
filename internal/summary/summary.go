@@ -411,7 +411,7 @@ func notable(p *view.Panel, o Options) []Note {
 			out = append(out, nt)
 		case p.Kind == view.KindRate && serverError(s):
 			// Counted once per metric below.
-		case !gcHeap.MatchString(p.Name()) && moved(p, s, st, o.Interval):
+		case !gcHeap.MatchString(p.Name()) && !runtimeWork(p) && moved(p, s, st, o.Interval):
 			nt := note(ReasonRising)
 			if st.Trend == ReasonFalling {
 				nt.Reason = ReasonFalling
@@ -470,6 +470,21 @@ func errorRate(live []*store.Series) (errs, all float64) {
 // collection, often for longer than the window, so a rise is no news. A
 // leak shows in the resident memory, which keeps its trend notes.
 var gcHeap = regexp.MustCompile(`(?i)heap|^go_memstats_alloc_bytes$|^go_memory_used|^jvm_memory_(bytes_)?used`)
+
+// runtimeCounts matches what a Go or JVM runtime counts as it works:
+// allocations, frees, promotions and collections.
+var runtimeCounts = regexp.MustCompile(`^go_memstats_(mallocs|frees|alloc_bytes)_total$|^go_memory_(allocations|allocated_bytes)_total$|` +
+	`^go_gc_cycles_|^go_gc_duration_seconds$|^jvm_memory_pool_allocated_bytes_total$|^jvm_gc_memory_(allocated|promoted)_bytes_total$|` +
+	`^jvm_gc_(collection|pause)_seconds$`)
+
+// runtimeWork reports whether p plots one of those counts per second. They
+// follow the service's own work, in bursts, so a change is no news (and an
+// event count in the millions makes any change significant); a leak shows in
+// the resident memory. A GC summary plotting its pause times, not how often
+// it collects, keeps its notes: pauses are short whatever the allocation rate.
+func runtimeWork(p *view.Panel) bool {
+	return valueName(p) == "rate" && runtimeCounts.MatchString(p.Name())
+}
 
 const (
 	nearLimit = 0.9

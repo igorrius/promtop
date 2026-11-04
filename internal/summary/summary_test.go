@@ -113,6 +113,143 @@ func TestGaugeTrends(t *testing.T) {
 	}
 }
 
+// runtimeExposition is a Go and a JVM service over a window: allocations at
+// alloc(i) per second, a GC per 100k of them whose pauses last pause(i)
+// seconds, a resident memory that keeps climbing and a steady share of 5xx.
+func runtimeExposition(alloc, pause func(i int) float64) func(i int) string {
+	var mallocs, frees, allocBytes, gcs, gcSum float64
+	return func(i int) string {
+		if i > 0 {
+			r := alloc(i) * 10 // per scrape, 10s apart
+			mallocs += r
+			frees += 0.97 * r
+			allocBytes += 64 * r
+			gcs += r / 1e5
+			gcSum += r / 1e5 * pause(i)
+		}
+		p := pause(i)
+		return fmt.Sprintf(`# TYPE go_memstats_mallocs_total counter
+go_memstats_mallocs_total %g
+# TYPE go_memstats_frees_total counter
+go_memstats_frees_total %g
+# TYPE go_memstats_alloc_bytes_total counter
+go_memstats_alloc_bytes_total %g
+# TYPE go_memory_allocations_total counter
+go_memory_allocations_total %g
+# TYPE go_memory_allocated_bytes_total counter
+go_memory_allocated_bytes_total %g
+# TYPE go_gc_cycles_automatic_gc_cycles_total counter
+go_gc_cycles_automatic_gc_cycles_total %g
+# TYPE go_gc_duration_seconds summary
+go_gc_duration_seconds{quantile="0"} %g
+go_gc_duration_seconds{quantile="0.5"} %g
+go_gc_duration_seconds{quantile="1"} %g
+go_gc_duration_seconds_sum %g
+go_gc_duration_seconds_count %g
+# TYPE jvm_memory_pool_allocated_bytes_total counter
+jvm_memory_pool_allocated_bytes_total{pool="G1 Eden Space"} %g
+# TYPE jvm_gc_memory_allocated_bytes_total counter
+jvm_gc_memory_allocated_bytes_total %g
+# TYPE jvm_gc_memory_promoted_bytes_total counter
+jvm_gc_memory_promoted_bytes_total %g
+# TYPE jvm_gc_collection_seconds summary
+jvm_gc_collection_seconds_sum{gc="G1 Young Generation"} %g
+jvm_gc_collection_seconds_count{gc="G1 Young Generation"} %g
+# TYPE jvm_gc_pause_seconds summary
+jvm_gc_pause_seconds_sum{action="end of minor GC"} %g
+jvm_gc_pause_seconds_count{action="end of minor GC"} %g
+# TYPE jvm_gc_pause_seconds_max gauge
+jvm_gc_pause_seconds_max{action="end of minor GC"} %g
+# TYPE process_resident_memory_bytes gauge
+process_resident_memory_bytes %d
+# TYPE http_requests_total counter
+http_requests_total{code="200"} %d
+http_requests_total{code="500"} %d
+`, mallocs, frees, allocBytes, mallocs, allocBytes, gcs,
+			p/4, p/2, p, gcSum, gcs,
+			allocBytes, allocBytes, allocBytes/50,
+			gcSum, gcs, gcSum, gcs, p,
+			100e6+i*20e6, 900*i, 100*i)
+	}
+}
+
+func TestRuntimeChurn(t *testing.T) {
+	// A burst of work (renders of /metrics, a batch) changes the allocation
+	// rate tenfold. How much the runtime allocates, frees, promotes and
+	// collects follows the work, in bursts; that is no news, and a leak shows
+	// in the resident memory instead. A JVM summary without quantiles plots
+	// its collections per second, so it is such a count too. How long a GC
+	// pauses is another matter: pauses are short by design whatever the
+	// allocation rate, so pauses that grow keep their notes.
+	steady := func(int) float64 { return 1e6 }
+	burst := func(i int) float64 {
+		if i >= 5 {
+			return 1e5
+		}
+		return 1e6
+	}
+	quiet := func(i int) float64 {
+		if i >= 5 {
+			return 1e6
+		}
+		return 1e5
+	}
+	shortPauses := func(i int) float64 { return 100e-6 + float64(i%2)*5e-6 }
+	longerPauses := func(i int) float64 {
+		if i >= 5 {
+			return 10e-3
+		}
+		return 1e-3
+	}
+	churn := []string{
+		"go_memstats_mallocs_total", "go_memstats_frees_total", "go_memstats_alloc_bytes_total",
+		"go_memory_allocations_total", "go_memory_allocated_bytes_total", "go_gc_cycles_automatic_gc_cycles_total",
+		"jvm_memory_pool_allocated_bytes_total", "jvm_gc_memory_allocated_bytes_total",
+		"jvm_gc_memory_promoted_bytes_total", "jvm_gc_collection_seconds", "jvm_gc_pause_seconds",
+	}
+	pauses := []string{"go_gc_duration_seconds", "jvm_gc_pause_seconds_max"}
+	for _, tc := range []struct {
+		name         string
+		alloc, pause func(int) float64
+		trend        string // of the counts
+		pausesNoted  bool
+	}{
+		{"allocations fall", burst, shortPauses, ReasonFalling, false},
+		{"allocations rise", quiet, shortPauses, ReasonRising, false},
+		{"pauses grow", steady, longerPauses, "flat", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := ingest(t, 9, runtimeExposition(tc.alloc, tc.pause))
+			o := Options{Interval: 10 * time.Second, From: t0, To: t0.Add(80 * time.Second), Now: t0.Add(80 * time.Second)}
+			d := Build(st, view.Build(st, view.Options{ShowAll: true}), o) // some are hidden as noise
+			for _, name := range churn {
+				if n := notes(d, name); len(n) != 0 {
+					t.Errorf("%s follows the work, no news: %+v", name, n)
+				}
+				m := find(d, name)
+				if m == nil || len(m.Series) != 1 || m.Series[0].Trend != tc.trend {
+					t.Errorf("%s stays in the summary with its trend %s: %+v", name, tc.trend, m)
+				}
+			}
+			for _, name := range pauses {
+				n := notes(d, name)
+				if tc.pausesNoted && (len(n) != 1 || n[0].Reason != ReasonRising) {
+					t.Errorf("%s: pauses ten times longer are news: %+v", name, n)
+				}
+				if !tc.pausesNoted && len(n) != 0 {
+					t.Errorf("%s: more GCs of the same short pause are no news: %+v", name, n)
+				}
+			}
+			if n := notes(d, "process_resident_memory_bytes"); len(n) != 1 || n[0].Reason != ReasonRising {
+				t.Errorf("a growing RSS is news: %+v", n)
+			}
+			if n := notes(d, "http_requests_total"); len(n) != 1 || n[0].Reason != ReasonErrors {
+				t.Errorf("5xx are news: %+v", n)
+			}
+		})
+	}
+}
+
 func TestErrorShareUnfiltered(t *testing.T) {
 	all := ingest(t, 3, func(i int) string {
 		return fmt.Sprintf("# TYPE req_total counter\nreq_total{code=\"200\"} %d\nreq_total{code=\"500\"} %d\n", 300*i, 100*i)

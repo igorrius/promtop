@@ -201,7 +201,8 @@ trends (three samples or more), and `-state` with `-offline` reads the history `
 collected, so a cron job can ask a model about the last day. The detection is deterministic and
 small — health flags, usage at 90%, 5xx counters, deadlines under 7 days, timestamps that moved,
 and changes of 50% between the first and last third of the window that stand out of the noise
-(Poisson for event counters, the spread of the samples otherwise; growing GC heaps are left out) —
+(Poisson for event counters, the spread of the samples otherwise; growing GC heaps and the
+runtime's allocation and GC counts are left out) —
 the model does the interpreting.
 
 [`skills/analyzing-metrics-with-promtop`](skills/analyzing-metrics-with-promtop) is an
